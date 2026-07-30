@@ -38,7 +38,7 @@ import org.springframework.web.client.RestClientResponseException;
  *   <li><b>X-Request-Id</b>：Java 生成的 UUID，Python 仅记录用于串联日志（不校验）。同时写入 MDC
  *       {@code reqId}，让本次调用的所有日志可按 reqId 检索。finally 块清理 MDC，避免线程池复用串味。
  *   <li><b>超时</b>：connect 10s / read <b>270s</b>（P5 Task 5.1 §5.3 全链路超时对齐——
- *       Python 内 LLM 单次 120s × 最多 2（原始+1 重试）≈ 250s → Java→Python read 270s → nginx 300s，
+ *       Python 内 LLM 单次 120s × 最多 2（原始+1 重试）= 240s → Java→Python read 270s → nginx 300s，
  *       「内层短于外层」，外层不可先掐断仍在跑的 Python 调用）。可配置：
  *       {@code sks.ai.connect-timeout-seconds} / {@code sks.ai.read-timeout-seconds}。
  *       原 60s 读超时会让长 script_gen（retrieve→generate→safety→rewrite-once 可超 60s）误判 AI_FAILED

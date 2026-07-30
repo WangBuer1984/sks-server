@@ -51,7 +51,7 @@ sks:
   # 本地 dev 可用 http://localhost:8000；service-token 来自 .env SERVICE_TOKEN（Python verify_service_token 校验同值）。
   ai:
     base-url: ${SKS_AI_BASE_URL:http://sks-ai:8000}
-    # §5.3 全链路超时「内层短于外层」：Python LLM 单 120s × 最多 2 ≈ 250s
+    # §5.3 全链路超时「内层短于外层」：Python LLM 单 120s × 最多 2 = 240s
     # → Java read-timeout 270s → nginx 300s。内层不可长于外层，否则外层先掐断仍在跑的调用。
     connect-timeout-seconds: ${SKS_AI_CONNECT_TIMEOUT:10}
     read-timeout-seconds: ${SKS_AI_READ_TIMEOUT:270}
