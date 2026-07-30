@@ -1,5 +1,13 @@
 .env
 target/
+*.class
+*.jar
+# 三条否定防 *.jar 误伤 Maven Wrapper：当前 wrapper 是 properties-only（jar 由 ./mvnw 运行时下载，
+# 本就不该进 git），故暂无 jar 需豁免；留着是防将来有人 mvn wrapper:wrapper 生成出 jar 版 wrapper 时
+# 被 *.jar 静默挡掉——clone 后 ./mvnw 跑不起来，CI 跟着红，且现场看不出原因。
+!mvnw
+!mvnw.cmd
+!.mvn/**
 .idea/
 *.iml
 **/application-local.yml

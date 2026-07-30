@@ -16,13 +16,19 @@ spring:
   config:
     import: "optional:file:.env[.properties]"   # 相对路径，工作目录=仓库根；[.properties] 强制按 properties 读 .env
   datasource:
-    url: jdbc:postgresql://localhost:5432/sks
-    username: sks
-    password: ${SPRING_DATASOURCE_PASSWORD:change_me}   # 读 .env，不硬编码
+    # 三项全从 .env 的 POSTGRES_* 派生，与 compose 的 environment 块同口径，只是 host 换 localhost。
+    # 不硬编码口令：.env 是唯一真相，改库口令只改一处。
+    url: jdbc:postgresql://localhost:5432/${POSTGRES_DB}
+    username: ${POSTGRES_USER}
+    password: ${POSTGRES_PASSWORD}
 sks:
   ai:
     base-url: http://localhost:8000   # 本地 Python；compose 默认 http://sks-ai:8000 对本地错
 ```
+
+> 用 `POSTGRES_*` 而不是 `SPRING_DATASOURCE_*`：后者是 compose 从前者派生出来注入容器的，`.env` 里并不存在。写成 `${SPRING_DATASOURCE_PASSWORD:change_me}` 会静默 fallback 到 `change_me`，然后报 `password authentication failed`。
+
+> **`.env` 缺键时的报错长这样**（Spring Boot 的 Binder 会把解析不了的占位符原样透传，不会点名报缺哪个变量）：缺 `POSTGRES_PASSWORD` → `FATAL: password authentication failed for user "sks"`；缺 `POSTGRES_DB` → `database "${POSTGRES_DB}" does not exist`。见到这两类报错先查 `.env` 的键是否齐，别先怀疑口令值。
 `.env`（gitignored）填真值；`JWT_SECRET_USER`/`JWT_SECRET_ADMIN` 必须换 ≥32 字节真值（否则 `JwtConfig.guardSecret` 启动即抛）。见记忆 `local-idea-run-java-env`。
 
 ## 镜像构建
