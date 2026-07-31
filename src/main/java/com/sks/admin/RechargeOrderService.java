@@ -48,7 +48,11 @@ import org.springframework.transaction.annotation.Transactional;
  * 不同，{@code credit} 的 {@code (biz_id, biz_type, type)} 幂等不拦（不同 biz_id）。管理员对复购双击会
  * 重复入账。MVP 不引入 client-idempotency-key（YAGNI），UI 层防双击 + 后续按需补强。
  *
- * <p><b>SMS 留桩</b>：开通/补偿「发短信」仅打日志，不调真实网关（联调时替换）。
+ * <p><b>SMS 留桩（MVP 决定：不做通知短信）</b>：开通/补偿「发短信通知用户」仅打日志，不接真实网关。
+ * 原因——本仓短信走阿里云号码认证服务（PNVS, dypnsapi {@code SendSmsVerifyCode}），而 PNVS <b>只支持
+ * 验证码场景</b>，发不了通知/到账类短信；个人开发者又无企业资质走普通短信服务（dysmsapi，需营业执照
+ * + 签名/模板审核）。故 MVP 阶段不做「到账短信通知」，用户经前端轮询 {@code GET /api/user/me} 的
+ * {@code balance}（TanStack Query 已有）感知余额变化。将来若获企业资质切 dysmsapi，再在此接通知通道。
  */
 @Service
 public class RechargeOrderService {
@@ -167,7 +171,8 @@ public class RechargeOrderService {
                     userId, FIRST_CHARGE_BONUS, "bonus", String.valueOf(orderId), "首充赠送");
         }
 
-        // SMS 留桩：MVP 不调真实网关，联调时替换。
+        // SMS 留桩（MVP 不做）：开通到账不发短信——PNVS 只支持验证码、个人开发者无 dysmsapi 资质。
+        // 用户经前端 GET /api/user/me 的 balance 感知余额变化。见类级 javadoc「SMS 留桩」。
         log.info(
                 "[SMS-STUB] open user={} pkg={} amount={} orderId={} isFirst={} admin={}",
                 userId,
@@ -203,6 +208,7 @@ public class RechargeOrderService {
 
         creditService.credit(userId, n, "compensate", String.valueOf(o.getId()), memo);
 
+        // SMS 留桩（MVP 不做）：补偿到账不发短信，理由同 open()——PNVS 只发验证码、个人无 dysmsapi 资质。
         log.info(
                 "[SMS-STUB] compensate user={} n={} orderId={} admin={} memo={}",
                 userId,
