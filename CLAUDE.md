@@ -14,7 +14,7 @@
 ## 本仓构建/测试命令
 
 - `./mvnw test`（全测）/ `./mvnw test -Dtest=CreditServiceTest`（单类）/ `./mvnw test -Dtest="AuthServiceTest,UserServiceTest"`（多类）
-- `./mvnw spring-boot:run`（本地跑，配合 `application-local.yml` + local profile + `.env`）
+- `./mvnw spring-boot:run`（本地跑——`local` 是 `application.yml` 默认 profile，自动加载 `application-local.yml` + `.env`；无需传 profile 参数）
 - 镜像构建：`docker build -t sks-server .`（Dockerfile `-DskipTests`，测试在 CI 前置 gate 跑）
 
 ## 契约

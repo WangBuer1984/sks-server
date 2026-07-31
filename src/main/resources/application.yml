@@ -1,6 +1,7 @@
 server:
   port: 8080
 
+
 spring:
   datasource:
     url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/sks}
@@ -30,6 +31,11 @@ spring:
     password: ${SPRING_MAIL_PASSWORD:}
     properties:
       mail.smtp.ssl.enable: true
+  profiles:
+    # 默认 local（本地联调）。生产由 compose 注入 SPRING_PROFILES_ACTIVE=prod 覆盖——
+    # env 优先级高于 application.yml。本地 IDEA 跑无需在 Run Config 设 profile：默认即 local，
+    # 自动加载 application-local.yml + 经其 spring.config.import 引入 .env。
+    active: ${SPRING_PROFILES_ACTIVE:local}
 
 mybatis-plus:
   configuration:

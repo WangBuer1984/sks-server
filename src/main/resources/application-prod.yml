@@ -1,0 +1,24 @@
+# 生产配置（docker compose 运行时激活——compose 注入 SPRING_PROFILES_ACTIVE=prod，env 优先级高于
+# application.yml 的 local 默认）。与 application-local.yml 对称但方向相反：
+#   local  → localhost 主机名 + spring.config.import 把 .env 当属性文件加载（镜像外、IDEA 跑）。
+#   prod   → 容器内网主机名（postgres / sks-ai）+ env 由 compose env_file:.env + environment 注入
+#            （镜像内无 .env 文件，故此文件不 import .env）。
+#
+# 本文件进 git——不含密钥，密钥全走 compose env_file:.env（不入镜像），此处只钉主机名与占位符。
+# 与 application.yml 的关系：profile 专属文件优先级高于 application.yml，此文件只覆盖「prod 与 local 不同的项」
+# （datasource 主机名 localhost→postgres、ai base-url 显式钉 sks-ai、datasource password 去掉 change_me 兜底）。
+
+spring:
+  datasource:
+    # host=postgres（compose 服务名）。凭据由 compose environment 的 SPRING_DATASOURCE_* 注入
+    # （compose: SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}）。
+    # 故意不给 change_me 兜底——缺 env 即启动报 Could not resolve placeholder，fail-closed
+    # （强于 application.yml 的 ${SPRING_DATASOURCE_PASSWORD:change_me} 默认，后者会静默发错口令）。
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://postgres:5432/sks}
+    username: ${SPRING_DATASOURCE_USERNAME:sks}
+    password: ${SPRING_DATASOURCE_PASSWORD}
+
+sks:
+  ai:
+    # 容器内网——sks-ai 服务名（与 application.yml 默认一致，此处显式钉死防有人误改默认值）。
+    base-url: ${SKS_AI_BASE_URL:http://sks-ai:8000}

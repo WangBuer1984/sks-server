@@ -4,10 +4,16 @@ Java 服务（Spring Boot 3 + MyBatis-Plus + Spring Security JWT），唯一公�
 
 ## 本地跑
 
-`application-local.yml` 是 **gitignored 的本地文件**（含本地口令，不进 git）——本地跑前先创建（模板见下）。激活 `local` profile 才会加载它 + `.env`：
+`application.yml` 默认激活 `local` profile（`spring.profiles.active: ${SPRING_PROFILES_ACTIVE:local}`），故本地跑无需在 Run Config 设 profile——默认即加载 `application-local.yml` + 经其 `spring.config.import` 引入 `.env`。`application-local.yml` 是 **gitignored 的本地文件**（含本地口令，不进 git），本地跑前先创建（模板见下）：
 
 ```bash
-./mvnw spring-boot:run -Dspring-boot.run.profiles=local
+./mvnw spring-boot:run     # local 是默认 profile，无需 -Dspring-boot.run.profiles=local
+```
+
+本地跑前若要验证 prod profile（连容器内网的 postgres/sks-ai，不读本地 .env）：
+
+```bash
+SPRING_PROFILES_ACTIVE=prod ./mvnw spring-boot:run   # 或 -Dspring-boot.run.profiles=prod
 ```
 
 `application-local.yml` 模板（本地创建，**勿提交**——已被 `.gitignore` 的 `**/application-local.yml` 挡）：
