@@ -79,7 +79,16 @@ sks:
     access-key-id: ${ALIYUN_ACCESS_KEY_ID:}
     access-key-secret: ${ALIYUN_ACCESS_KEY_SECRET:}
     endpoint: ${ALIYUN_SMS_ENDPOINT:dypnsapi.aliyuncs.com}    # DYPNS（非 dysmsapi）
-    sign-name: ${ALIYUN_SMS_SIGN:}                             # 赠送签名（如 速通互联验证码）
+    # 签名写死在这里（YAML，Spring 按 UTF-8 读），且**故意不留 ${ALIYUN_SMS_SIGN} 占位符**——
+    # 它是全项目唯一的非 ASCII 配置项，而经 .env / 环境变量传非 ASCII 这条路是坏的：
+    #   本地：spring.config.import 的 [.properties] 走 Java properties 加载器 = ISO-8859-1，
+    #        「恒创联众」的 12 个 UTF-8 字节被读成 12 个字符，SDK 再按 UTF-8 编码发出（二次编码）→
+    #        阿里云回 isv.INVALID_PARAMETERS「签名或者模版无效」，报错完全不提编码（已实测）。
+    #   容器：经 env_file 进环境变量后由 sun.jnu.encoding 解码，该值跟随 locale 而 temurin 未设 LANG。
+    # 签名不是密钥（每条短信都印着它），入 git 无妨。要换签名改这一行即可。
+    # 注意 Spring 松散绑定下 SKS_SMS_SIGN_NAME 环境变量仍能覆盖本项，那条路同样有编码风险——
+    # AliyunSmsAuthClient.warnIfMangled 会在乱码时直接报出修法。
+    sign-name: 恒创联众
     template-login: ${ALIYUN_SMS_TEMPLATE_LOGIN:}              # 登录/注册赠送模板（如 100002）
     template-verify-old: ${ALIYUN_SMS_TEMPLATE_VERIFY_OLD:}   # 换绑验旧号赠送模板
     template-bind-new: ${ALIYUN_SMS_TEMPLATE_BIND_NEW:}      # 换绑验新号赠送模板
