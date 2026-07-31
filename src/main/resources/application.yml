@@ -97,6 +97,11 @@ sks:
     #   容器：经 env_file 进环境变量后由 sun.jnu.encoding 解码，该值跟随 locale 而 temurin 未设 LANG。
     # 注意 Spring 松散绑定下 SKS_SMS_SIGN_NAME 环境变量仍能覆盖本项，那条路同样有编码风险——
     # AliyunSmsAuthClient.warnIfMangled 会在乱码时直接报出修法。
+    # 签名【不加引号】而模板号加，不是笔误。用 Spring 所用的 SnakeYAML 实测：
+    #   100001（裸）→ Integer；007（裸）→ Integer 7（前导零连值一起丢），故模板号必须加引号。
+    #   恒创联众（裸）→ String，无类型歧义；且 plain scalar 会剥掉尾部空格，而 "恒创联众   " 会保留——
+    #   行尾多敲一个空格就把带空格的签名发给阿里云，换来的又是那句毫无线索的「签名或者模版无效」。
+    #   即：这里不加引号反而挡掉了一类坑，别为了「统一风格」补上。
     sign-name: 恒创联众
     template-login: "100001"          # 登录/注册
     template-verify-old: "100002"     # 换绑——验旧号
