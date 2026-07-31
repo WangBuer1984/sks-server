@@ -72,26 +72,35 @@ sks:
   quota:
     sms-threshold: ${SKS_QUOTA_SMS_THRESHOLD:100}
     glm-threshold: ${SKS_QUOTA_GLM_THRESHOLD:20}
-  # 阿里云 DYPNS 短信认证（spec §3.3——AliyunSmsAuthClient 条件降级：key/template 空→stub 不抛；
-  # 齐全→真 SendSmsVerifyCode 字面码模式，失败抛 SMS_SEND_FAILED 5003）。env 来自 .env（gitignored）。
-  # sks-server 用 env_file:.env，所有 ALIYUN_* 已自动进容器，无需改 docker-compose.yml。
+  # 阿里云 DYPNS 短信认证（spec §3.3）。字面码模式真发 SendSmsVerifyCode，失败抛 SMS_SEND_FAILED 5003。
+  #
+  # 【为何只有 AK 走 .env】签名/端点/三个模板号都不是密钥（签名印在每条短信上，模板号是 DYPNS 公共
+  # 赠送模板），全部写死在下面；只有 access-key-id/secret 是真密钥，留在 .env（gitignored）。
+  # 这样做有两个理由，都不是洁癖：
+  #   1. 签名是非 ASCII，经 .env 必然乱码（见下 sign-name 注释），这条路从根上是坏的。
+  #   2. `${VAR:默认值}` 对「VAR 已定义但为空」用的是空值、不是默认值。而 .env.example 里这些键
+  #      历来写成 `ALIYUN_SMS_TEMPLATE_LOGIN=` 空行，谁照抄一份 .env 就把模板覆盖成空 →
+  #      configured() 不成立 → 静默走 stub、短信不发也不报错（正是 spec 说的「藏得住」）。
+  #      写死即无此坑。要换签名/模板就改这里，改完重新构建镜像。
+  #
+  # 【条件降级现在只看 AK】configured() = AK id/secret + 签名 + 对应场景模板，四者非空。签名与模板
+  # 已写死非空，故实际闸门只剩 AK 两项：没配 AK → stub 只打日志不发（本地/CI 默认如此）；配了 → 真发。
   sms:
     access-key-id: ${ALIYUN_ACCESS_KEY_ID:}
     access-key-secret: ${ALIYUN_ACCESS_KEY_SECRET:}
-    endpoint: ${ALIYUN_SMS_ENDPOINT:dypnsapi.aliyuncs.com}    # DYPNS（非 dysmsapi）
-    # 签名写死在这里（YAML，Spring 按 UTF-8 读），且**故意不留 ${ALIYUN_SMS_SIGN} 占位符**——
+    endpoint: dypnsapi.aliyuncs.com    # DYPNS（非 dysmsapi）
+    # 签名【必须】写死在 YAML（Spring 按 UTF-8 读），故意不留 ${ALIYUN_SMS_SIGN} 占位符——
     # 它是全项目唯一的非 ASCII 配置项，而经 .env / 环境变量传非 ASCII 这条路是坏的：
     #   本地：spring.config.import 的 [.properties] 走 Java properties 加载器 = ISO-8859-1，
     #        「恒创联众」的 12 个 UTF-8 字节被读成 12 个字符，SDK 再按 UTF-8 编码发出（二次编码）→
     #        阿里云回 isv.INVALID_PARAMETERS「签名或者模版无效」，报错完全不提编码（已实测）。
     #   容器：经 env_file 进环境变量后由 sun.jnu.encoding 解码，该值跟随 locale 而 temurin 未设 LANG。
-    # 签名不是密钥（每条短信都印着它），入 git 无妨。要换签名改这一行即可。
     # 注意 Spring 松散绑定下 SKS_SMS_SIGN_NAME 环境变量仍能覆盖本项，那条路同样有编码风险——
     # AliyunSmsAuthClient.warnIfMangled 会在乱码时直接报出修法。
     sign-name: 恒创联众
-    template-login: ${ALIYUN_SMS_TEMPLATE_LOGIN:}              # 登录/注册赠送模板（如 100002）
-    template-verify-old: ${ALIYUN_SMS_TEMPLATE_VERIFY_OLD:}   # 换绑验旧号赠送模板
-    template-bind-new: ${ALIYUN_SMS_TEMPLATE_BIND_NEW:}      # 换绑验新号赠送模板
+    template-login: "100001"          # 登录/注册
+    template-verify-old: "100002"     # 换绑——验旧号
+    template-bind-new: "100004"       # 换绑——验新号
   # 邮件告警收件人（MailAlertNotifier）。空 → stub 不发；非空 + spring.mail.host 非空 → 真发邮件。
   # 值来自 .env SKS_ALERT_ADMIN_EMAIL（站长邮箱）。
   alert:

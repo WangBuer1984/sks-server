@@ -17,9 +17,14 @@ import org.springframework.stereotype.Component;
  * （不调 CheckSmsVerifyCode）。条件降级：access-key/secret/sign + 对应 scene 模板任一空 → stub 不抛；
  * 齐全 → 真 SendSmsVerifyCode，失败（body.Code≠OK 或异常）抛 SMS_SEND_FAILED。懒构造 Client；setDelegate 测试 seam。
  *
- * <p><b>签名不走 .env / 环境变量</b>：{@code sign-name} 是全项目唯一的非 ASCII 配置项，值写死在
- * application.yml（YAML 按 UTF-8 读）。经 .env 会被 properties 加载器按 ISO-8859-1 读成乱码 → 阿里云回
- * 「签名或者模版无效」；松散绑定下 {@code SKS_SMS_SIGN_NAME} 环境变量也有同类风险，见 {@link #warnIfMangled}。
+ * <p><b>降级实际只看 AK</b>：{@link #configured} 的四项里，签名与三个模板号已在 application.yml 写死非空
+ * （它们不是密钥），故运行时闸门只剩 access-key-id/secret：没配 AK → stub 只打日志（本地/CI 默认），
+ * 配了 → 真发。构造参数仍保留全部四项，单测可传空来覆盖 stub 分支。
+ *
+ * <p><b>签名/模板不走 .env</b>：签名是全项目唯一的非 ASCII 配置项，经 .env 会被 properties 加载器按
+ * ISO-8859-1 读成乱码 → 阿里云回「签名或者模版无效」（见 {@link #warnIfMangled}）；模板号虽是 ASCII，
+ * 但 {@code ${VAR:默认值}} 遇「已定义但为空」用的是空值，.env 里一行空的
+ * {@code ALIYUN_SMS_TEMPLATE_LOGIN=} 就会让短信静默退回 stub。两者一并写死在 application.yml。
  *
  * <p><b>不设 CodeLength/CodeType/Interval</b>：那仨是「{@code ##code##} 由系统按 CodeType 生成」模式的参数
  * （PNVS 文档「由参数 CodeType 指定验证码生成规则」）。字面码模式直接传 {@code {"code":"123456",...}}
@@ -57,6 +62,13 @@ public class AliyunSmsAuthClient implements SmsClient {
         this.templateLogin = templateLogin;
         this.templateVerifyOld = templateVerifyOld;
         this.templateBindNew = templateBindNew;
+        // 启动即声明当前模式。spec §3.3 担心的「漏配藏得住」——stub 只打 INFO 单行日志，
+        // 前端表现为「验证码已发送」但手机永远收不到，排查时极易怀疑到运营商/网络。
+        // 这里在启动时把闸门状态和实际生效的签名/模板摊开，省掉那一轮猜。不打 AK 本身。
+        boolean live = isPresent(accessKeyId) && isPresent(accessKeySecret);
+        log.info("短信 {}：sign='{}' endpoint={} templates(login/verifyOld/bindNew)={}/{}/{}",
+                live ? "真发模式" : "stub 模式（AK 未配，只落库打日志不发）",
+                signName, endpoint, templateLogin, templateVerifyOld, templateBindNew);
     }
 
     @Override
