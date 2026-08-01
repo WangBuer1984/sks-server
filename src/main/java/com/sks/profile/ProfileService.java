@@ -8,6 +8,7 @@ import com.sks.aiclient.AiClient.InterviewStepResponse;
 import com.sks.common.BizException;
 import com.sks.common.ErrorCode;
 import com.sks.kb.KbCardService;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -153,6 +154,26 @@ public class ProfileService {
             log.warn("active profile content parse failed for user {}: {}", userId, e.getMessage());
             return Optional.empty();
         }
+    }
+
+    /** GET /api/profile 响应（对齐前端 ActiveProfileView）。无 active 行 → calibrated=false（非 404）。 */
+    public record ActiveProfileView(
+            boolean calibrated,
+            Integer version,
+            OffsetDateTime calibratedAt,
+            Map<String, Object> content) {}
+
+    /**
+     * 当前 active 档案的视图。无 active（未校准）→ calibrated=false（前端工作台/定位页判 homeNew/homeNormal）。
+     * content 为档案 JSONB 解析后的 Map；解析失败降级空 Map。
+     */
+    public ActiveProfileView activeProfileView(long userId) {
+        PositioningProfile p = profileMapper.findActive(userId);
+        if (p == null || p.getContent() == null) {
+            return new ActiveProfileView(false, null, null, Map.of());
+        }
+        return new ActiveProfileView(
+                true, p.getVersion(), p.getCreatedAt(), activeProfile(userId).orElse(Map.of()));
     }
 
     /**

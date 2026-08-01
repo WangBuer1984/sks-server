@@ -6,6 +6,7 @@ import com.sks.common.ApiResponse;
 import com.sks.common.BizException;
 import com.sks.common.ErrorCode;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -37,6 +38,12 @@ public class ProfileController {
 
     public ProfileController(ProfileService profileService) {
         this.profileService = profileService;
+    }
+
+    /** GET /api/profile：当前用户的 active 定位档案。未校准返 calibrated=false（非 404，前端工作台/定位页用）。 */
+    @GetMapping
+    public ApiResponse<ProfileService.ActiveProfileView> activeProfile(@AuthenticationPrincipal Long userId) {
+        return ApiResponse.ok(profileService.activeProfileView(userId));
     }
 
     /**
