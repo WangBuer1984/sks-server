@@ -27,7 +27,10 @@ public class UserService {
         this.creditService = creditService;
     }
 
-    /** {@code GET /api/user/me} 的返回体。{@code balance} 取自 {@link CreditService#balance}。 */
+    /**
+     * {@code GET /api/user/me} 的返回体。{@code balance} 取自 {@link CreditService#balance}；
+     * {@code totalQuota} 取自 {@link CreditService#totalCredited}（历史入账总额，进度条分母）。
+     */
     public record MeResponse(
             Long userId,
             String phone,
@@ -41,7 +44,8 @@ public class UserService {
             Integer weeklyGoal,
             String defaultPlatform,
             Integer completeness,
-            Integer balance) {}
+            Integer balance,
+            Integer totalQuota) {}
 
     /** 读取当前用户资料。未找到抛 {@link ErrorCode#UNAUTHORIZED}（理论上不会发生，安全层已校验）。 */
     public MeResponse me(long userId) {
@@ -50,6 +54,7 @@ public class UserService {
             throw new BizException(ErrorCode.UNAUTHORIZED);
         }
         int balance = creditService.balance(userId);
+        int totalQuota = creditService.totalCredited(userId);
         return new MeResponse(
                 u.getId(),
                 u.getPhone(),
@@ -63,7 +68,8 @@ public class UserService {
                 u.getWeeklyGoal(),
                 u.getDefaultPlatform(),
                 u.getProfileCompleteness() == null ? 0 : u.getProfileCompleteness(),
-                balance);
+                balance,
+                totalQuota);
     }
 
     /**

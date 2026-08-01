@@ -24,4 +24,13 @@ public interface CreditLedgerMapper extends BaseMapper<CreditLedger> {
             @Param("bizId") String bizId,
             @Param("bizType") String bizType,
             @Param("type") String type);
+
+    /**
+     * 总入账额度（{@code type IN ('credit','refund')} 的 {@code delta} 之和）——侧边栏进度条分母，
+     * 替代写死 50。{@code refund} 也是 {@code +delta}，与 {@code credit} 一起算入账。
+     */
+    @Select(
+            "SELECT COALESCE(SUM(delta), 0) FROM credit_ledger "
+                    + "WHERE user_id = #{userId} AND type IN ('credit', 'refund')")
+    int sumCredited(@Param("userId") long userId);
 }

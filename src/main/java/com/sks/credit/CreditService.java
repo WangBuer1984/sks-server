@@ -137,4 +137,13 @@ public class CreditService {
         Integer b = accountMapper.selectBalance(userId);
         return b == null ? 0 : b;
     }
+
+    /**
+     * 总入账额度（{@code type IN ('credit','refund')} 的 delta 之和）；侧边栏进度条分母，替代写死 50。
+     * 与 {@link #balance} 区别：balance 是当前剩余（含扣减），totalCredited 是历史入账总额。
+     * 无流水返回 0。
+     */
+    public int totalCredited(long userId) {
+        return ledgerMapper.sumCredited(userId);
+    }
 }
