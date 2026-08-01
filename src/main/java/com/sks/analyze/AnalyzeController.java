@@ -63,6 +63,13 @@ public class AnalyzeController {
         return ApiResponse.ok(new TaskAccepted(taskId));
     }
 
+    /** 拆账号预检（免费，不扣费）：返 videoCount N + 预估扣费 max(1,min(10,N/2))。前端 pre-submit 显示数字。 */
+    @PostMapping("/account/precheck")
+    public ApiResponse<AnalyzeService.PrecheckView> accountPrecheck(
+            @AuthenticationPrincipal Long userId, @RequestBody AccountRequest req) {
+        return ApiResponse.ok(analyzeService.precheck(req.url()));
+    }
+
     /** 任务详情（status/progress/result + TOP20 明细）。IDOR：跨用户 → PARAM_INVALID。 */
     @GetMapping("/tasks/{id}")
     public ApiResponse<TaskDetail> getTask(

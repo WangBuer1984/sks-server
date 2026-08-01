@@ -149,6 +149,29 @@ public class AnalyzeService {
         return startAsyncTask(userId, "account", url, charge, "analyze_account");
     }
 
+    /** POST /analyze/account/precheck 响应——预估扣费（免费，不扣）。 */
+    public record PrecheckView(boolean reachable, int videoCount, int estimatedCharge) {}
+
+    /**
+     * 拆账号预检（免费，不扣费不建任务）。调 {@link AiClient#precheck} 取 videoCount，
+     * 算 {@code estimatedCharge = max(1, min(10, N/2))}（与 {@link #startAccount} 同口径）。
+     * 预检本身失败（TikHub 不可达）→ reachable=false / N=0 / charge=0（不抛，前端提示改用拆视频）。
+     */
+    public PrecheckView precheck(String url) {
+        if (url == null || url.isBlank()) {
+            return new PrecheckView(false, 0, 0);
+        }
+        AiClient.Precheck p;
+        try {
+            p = aiClient.precheck(url);
+        } catch (RuntimeException e) {
+            log.warn("precheck failed for url {}: {}", url, e.getMessage());
+            return new PrecheckView(false, 0, 0);
+        }
+        int n = p.videoCount();
+        return new PrecheckView(p.reachable(), n, Math.max(1, Math.min(10, n / 2)));
+    }
+
     /**
      * 异步任务公共编排（video/link + account）：插占位 → 扣 charge → 调 Python 202 → 返回 taskId。
      *
