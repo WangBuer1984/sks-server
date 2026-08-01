@@ -126,9 +126,11 @@ public class ScriptService {
      * @param topicId 选题 id（必须属于本用户）
      * @param platform 平台；null/空 → 取 {@code app_user.default_platform}（§4.2 默认主平台）
      */
-    public GenerateResult generate(long userId, long topicId, String platform) {
+    public GenerateResult generate(long userId, long topicId, String platform, String duration) {
         // 1. 解析平台：缺省取用户主平台（IDOR：topicService.get 校验选题归属）
         String plat = resolvePlatform(userId, platform);
+        // duration 缺省 45（45秒口播）；'45'|'90'|'180'
+        String dur = (duration == null || duration.isBlank()) ? "45" : duration;
 
         // 选题归属校验（跨用户选题 → PARAM_INVALID），同时供 scriptGen 请求拿 title/rationale
         Topic topic = topicService.get(userId, topicId);
@@ -170,7 +172,8 @@ public class ScriptService {
                         userId,
                         new AiClient.TopicRequest(topic.getTitle(), topic.getRationale() == null ? "" : topic.getRationale()),
                         profile,
-                        plat);
+                        plat,
+                        dur);
         AiClient.ScriptGenResult result;
         try {
             result = aiClient.scriptGen(req);

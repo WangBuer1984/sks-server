@@ -114,7 +114,7 @@ class ScriptServiceTest extends AbstractDbTest {
     void generationFailureRefundsCredit() {
         creditService.credit(uid, 5, "recharge", "o1", null);
         when(aiClient.scriptGen(any())).thenThrow(new RuntimeException("timeout"));
-        assertThrows(BizException.class, () -> scriptService.generate(uid, topicId, "douyin"));
+        assertThrows(BizException.class, () -> scriptService.generate(uid, topicId, "douyin", "45"));
         assertEquals(5, creditService.balance(uid)); // 已全额退回
         // 承重断言：占位行已持久化为 failed + 退款流水已落库。
         // 若 generate() 被误标 @Transactional，失败路径全在 rollback-only tx 里，两者都会回滚 → 0 → 红。
@@ -157,7 +157,7 @@ class ScriptServiceTest extends AbstractDbTest {
         // generate: 插占位 → 扣 5→4 → scriptGen 抛 → failAndRefund：先 refund（4→5）→ markFailed 抛 → 传播。
         assertThrows(
                 RuntimeException.class,
-                () -> scriptService.generate(uid, topicId, "douyin"));
+                () -> scriptService.generate(uid, topicId, "douyin", "45"));
         // 承重断言一：退款流水已落库（=1）。若顺序为「先 markFailed 后 refund」，markFailed 抛 → refund 不执行 → 0 → 红。
         assertEquals(
                 1,
@@ -188,8 +188,8 @@ class ScriptServiceTest extends AbstractDbTest {
     void regenerateSameTopicNotCharged() {
         creditService.credit(uid, 5, "recharge", "o1", null);
         when(aiClient.scriptGen(any())).thenReturn(okScriptResult());
-        long sid1 = scriptService.generate(uid, topicId, "douyin").scriptId(); // 扣 1
-        long sid2 = scriptService.generate(uid, topicId, "douyin").scriptId(); // 同平台同选题免扣、不重调
+        long sid1 = scriptService.generate(uid, topicId, "douyin", "45").scriptId(); // 扣 1
+        long sid2 = scriptService.generate(uid, topicId, "douyin", "45").scriptId(); // 同平台同选题免扣、不重调
         assertEquals(sid1, sid2); // 返回已有稿 id，不新建
         assertEquals(4, creditService.balance(uid)); // 未再扣
         verify(aiClient, times(1)).scriptGen(any()); // 同平台短路，只生成一次
@@ -201,7 +201,7 @@ class ScriptServiceTest extends AbstractDbTest {
     void sentenceRewriteIsFreeAndUpdatesNothingUntilConfirmed() {
         creditService.credit(uid, 5, "recharge", "o1", null);
         when(aiClient.scriptGen(any())).thenReturn(okScriptResult());
-        long sid = scriptService.generate(uid, topicId, "douyin").scriptId(); // 扣 1 → 4
+        long sid = scriptService.generate(uid, topicId, "douyin", "45").scriptId(); // 扣 1 → 4
         when(aiClient.rewriteSentence(any())).thenReturn("换了说法的新句子");
         String preview = scriptService.rewriteSentence(uid, sid, "body", 0);
         assertEquals(4, creditService.balance(uid)); // 单句重写不扣额度
@@ -218,7 +218,7 @@ class ScriptServiceTest extends AbstractDbTest {
         when(aiClient.scriptGen(any())).thenReturn(okScriptResult());
         BizException e =
                 assertThrows(
-                        BizException.class, () -> scriptService.generate(uid, topicId, "douyin"));
+                        BizException.class, () -> scriptService.generate(uid, topicId, "douyin", "45"));
         assertEquals(ErrorCode.INSUFFICIENT_BALANCE, e.errorCode());
         assertEquals(0, creditService.balance(uid)); // 不退款——没扣过
         verify(aiClient, never()).scriptGen(any()); // 余额不足时根本不该调 Python
@@ -239,7 +239,7 @@ class ScriptServiceTest extends AbstractDbTest {
         when(aiClient.scriptGen(any())).thenReturn(blockedScriptResult());
         BizException e =
                 assertThrows(
-                        BizException.class, () -> scriptService.generate(uid, topicId, "douyin"));
+                        BizException.class, () -> scriptService.generate(uid, topicId, "douyin", "45"));
         assertEquals(ErrorCode.CONTENT_BLOCKED, e.errorCode());
         assertEquals(5, creditService.balance(uid)); // 已退款
     }
@@ -256,8 +256,8 @@ class ScriptServiceTest extends AbstractDbTest {
     void sameTopicNotChargedAcrossPlatforms() {
         creditService.credit(uid, 5, "recharge", "o1", null);
         when(aiClient.scriptGen(any())).thenReturn(okScriptResult());
-        long sid1 = scriptService.generate(uid, topicId, "douyin").scriptId(); // 首生成扣 1 → 4
-        long sid2 = scriptService.generate(uid, topicId, "kuaishou").scriptId(); // 切平台再生成，免扣
+        long sid1 = scriptService.generate(uid, topicId, "douyin", "45").scriptId(); // 首生成扣 1 → 4
+        long sid2 = scriptService.generate(uid, topicId, "kuaishou", "45").scriptId(); // 切平台再生成，免扣
         assertNotEquals(sid1, sid2); // 新建稿件，非返回旧平台稿
         assertEquals(4, creditService.balance(uid)); // 选题已成功过 → 再生成免费，余额不动
         verify(aiClient, times(2)).scriptGen(any()); // 两次生成都调 Python（再生成本就发生）
@@ -276,10 +276,10 @@ class ScriptServiceTest extends AbstractDbTest {
         when(aiClient.scriptGen(any()))
                 .thenReturn(okScriptResult())
                 .thenThrow(new RuntimeException("timeout"));
-        scriptService.generate(uid, topicId, "douyin");
+        scriptService.generate(uid, topicId, "douyin", "45");
         BizException e =
                 assertThrows(
-                        BizException.class, () -> scriptService.generate(uid, topicId, "kuaishou"));
+                        BizException.class, () -> scriptService.generate(uid, topicId, "kuaishou", "45"));
         assertEquals(ErrorCode.AI_FAILED, e.errorCode());
         assertEquals(4, creditService.balance(uid)); // 未扣不退——余额停在 4
         // 再生成的占位行已持久化为 failed（首生成那行是 draft，故 failed 计数恰为 1）
@@ -304,7 +304,7 @@ class ScriptServiceTest extends AbstractDbTest {
     void platformDefaultsToUserDefaultPlatform() {
         creditService.credit(uid, 5, "recharge", "o1", null);
         when(aiClient.scriptGen(any())).thenReturn(okScriptResult());
-        long sid = scriptService.generate(uid, topicId, null).scriptId(); // 缺省 → douyin
+        long sid = scriptService.generate(uid, topicId, null, null).scriptId(); // 缺省 → douyin / 45
         assertEquals(4, creditService.balance(uid));
         String platform =
                 jdbcTemplate.queryForObject(
@@ -318,7 +318,7 @@ class ScriptServiceTest extends AbstractDbTest {
     void editSentencePersists() {
         creditService.credit(uid, 5, "recharge", "o1", null);
         when(aiClient.scriptGen(any())).thenReturn(okScriptResult());
-        long sid = scriptService.generate(uid, topicId, "douyin").scriptId();
+        long sid = scriptService.generate(uid, topicId, "douyin", "45").scriptId();
         String before = scriptService.get(sid).bodySentence(0);
         scriptService.editSentence(uid, sid, "body", 0, "手改后的句子");
         assertEquals("手改后的句子", scriptService.get(sid).bodySentence(0));

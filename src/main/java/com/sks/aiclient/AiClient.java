@@ -135,7 +135,8 @@ public class AiClient {
             @JsonProperty("user_id") long userId,
             @JsonProperty("topic") TopicRequest topic,
             @JsonProperty("profile") Map<String, Object> profile,
-            @JsonProperty("platform") String platform) {}
+            @JsonProperty("platform") String platform,
+            @JsonProperty("duration") String duration) {}
 
     /** Python {@code TopicRequest {title, rationale}}。 */
     public record TopicRequest(

@@ -47,7 +47,7 @@ public class ScriptController {
     @PostMapping("/generate")
     public ApiResponse<ScriptDetail> generate(
             @AuthenticationPrincipal Long userId, @RequestBody GenerateRequest req) {
-        ScriptService.GenerateResult r = scriptService.generate(userId, req.topicId(), req.platform());
+        ScriptService.GenerateResult r = scriptService.generate(userId, req.topicId(), req.platform(), req.duration());
         return ApiResponse.ok(detailOf(userId, r.scriptId(), r.dedupWarnScriptId()));
     }
 
@@ -94,7 +94,7 @@ public class ScriptController {
 
     // ---- 请求 / 响应 DTO ----
 
-    public record GenerateRequest(Long topicId, String platform) {}
+    public record GenerateRequest(Long topicId, String platform, String duration) {}
 
     public record EditSentenceRequest(String section, int idx, String text) {}
 
