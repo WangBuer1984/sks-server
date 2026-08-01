@@ -39,6 +39,9 @@ import org.springframework.stereotype.Service;
 @Service
 public class AnalyzeService {
 
+    /** 拆账号固定扣费（条/次）。前端经 GET /api/analyze/costs 获取，不写死。 */
+    public static final int ACCOUNT_CHARGE = 10;
+
     private static final ObjectMapper OM = new ObjectMapper();
     private static final Logger log = LoggerFactory.getLogger(AnalyzeService.class);
 
@@ -143,33 +146,10 @@ public class AnalyzeService {
             throw new BizException(ErrorCode.AI_FAILED, "账号不可达或无视频，请改用拆视频（粘链接/粘文案）逐条拆解");
         }
 
-        // 2. charge = max(1, min(10, floor(N/2)))——下限 1 防 N=1 白嫖，上限 10 封顶。
-        int charge = Math.max(1, Math.min(10, precheck.videoCount() / 2));
+        // 2. charge = 10（固定，非 floor(N/2)）
+        int charge = ACCOUNT_CHARGE;
 
         return startAsyncTask(userId, "account", url, charge, "analyze_account");
-    }
-
-    /** POST /analyze/account/precheck 响应——预估扣费（免费，不扣）。 */
-    public record PrecheckView(boolean reachable, int videoCount, int estimatedCharge) {}
-
-    /**
-     * 拆账号预检（免费，不扣费不建任务）。调 {@link AiClient#precheck} 取 videoCount，
-     * 算 {@code estimatedCharge = max(1, min(10, N/2))}（与 {@link #startAccount} 同口径）。
-     * 预检本身失败（TikHub 不可达）→ reachable=false / N=0 / charge=0（不抛，前端提示改用拆视频）。
-     */
-    public PrecheckView precheck(String url) {
-        if (url == null || url.isBlank()) {
-            return new PrecheckView(false, 0, 0);
-        }
-        AiClient.Precheck p;
-        try {
-            p = aiClient.precheck(url);
-        } catch (RuntimeException e) {
-            log.warn("precheck failed for url {}: {}", url, e.getMessage());
-            return new PrecheckView(false, 0, 0);
-        }
-        int n = p.videoCount();
-        return new PrecheckView(p.reachable(), n, Math.max(1, Math.min(10, n / 2)));
     }
 
     /**

@@ -7,6 +7,7 @@ import java.util.List;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -63,11 +64,10 @@ public class AnalyzeController {
         return ApiResponse.ok(new TaskAccepted(taskId));
     }
 
-    /** 拆账号预检（免费，不扣费）：返 videoCount N + 预估扣费 max(1,min(10,N/2))。前端 pre-submit 显示数字。 */
-    @PostMapping("/account/precheck")
-    public ApiResponse<AnalyzeService.PrecheckView> accountPrecheck(
-            @AuthenticationPrincipal Long userId, @RequestBody AccountRequest req) {
-        return ApiResponse.ok(analyzeService.precheck(req.url()));
+    /** 各模式扣费（条/次）。前端查此而非写死，余额不足时提示「额度不够」。 */
+    @GetMapping("/costs")
+    public ApiResponse<Costs> costs() {
+        return ApiResponse.ok(new Costs(1, 1, AnalyzeService.ACCOUNT_CHARGE));
     }
 
     /** 任务详情（status/progress/result + TOP20 明细）。IDOR：跨用户 → PARAM_INVALID。 */
@@ -93,6 +93,9 @@ public class AnalyzeController {
     public record AccountRequest(String url) {}
 
     public record TaskAccepted(long taskId) {}
+
+    /** GET /api/analyze/costs 响应——各模式扣费条数（videoText/videoLink=1, account=10）。 */
+    public record Costs(int videoText, int videoLink, int account) {}
 
     /** video/text 同步结果（对齐 Python {structure, why_hot, framework, diff_hint}）。 */
     public record VideoTextResponse(
