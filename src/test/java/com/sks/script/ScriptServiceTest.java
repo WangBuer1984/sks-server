@@ -106,6 +106,19 @@ class ScriptServiceTest extends AbstractDbTest {
         jdbcTemplate.update("DELETE FROM app_user WHERE id = ?", uid);
     }
 
+    // ---- list 路径回归（null 过滤 PG 类型推断坑，::text cast 守卫）----
+    @Test
+    void listWithNullStateReturnsAllScripts() {
+        jdbcTemplate.update(
+                "INSERT INTO script(user_id, topic_id, platform, review_state) "
+                        + "VALUES (?, ?, 'douyin', 'draft')",
+                uid,
+                topicId);
+        // null state → 聚合全部；过去 ScriptMapper 漏 ::text cast，PG 推断不出 ? 类型 → 崩。
+        List<Script> all = scriptService.list(uid, null);
+        assertEquals(1, all.size());
+    }
+
     // ---- brief verbatim 用例（3 个，事务隔离标 NOT_SUPPORTED + 清理）----
 
     /** §4.1：生成失败（HTTP 超时 / 异常）→ 占位行 failed + 退款 + 抛 AI_FAILED。 */

@@ -118,6 +118,15 @@ class KbCardServiceTest extends AbstractDbTest {
         assertEquals(0, kbCardMapper.countByUser(uid)); // 已软删，count 不含
     }
 
+    // ---- list 路径回归（null 过滤 PG 类型推断坑，::text cast 守卫）----
+    @Test
+    void listWithNullLayerReturnsAllCards() {
+        kbCardService.create(uid, "B", "产品", "测试卡", contentV1);
+        // null layer → 聚合全部；过去 KbCardMapper 漏 ::text cast，PG 推断不出 ? 类型 → 崩。
+        var all = kbCardService.list(uid, null);
+        assertEquals(1, all.size());
+    }
+
     // ---- IDOR 防护（设计 §5.1）----
 
     /**
