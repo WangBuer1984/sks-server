@@ -99,7 +99,7 @@ public interface KbCardMapper extends BaseMapper<KbCard> {
     @Select(
             "SELECT id, layer, card_type, title, content, updated_at FROM kb_card "
                     + "WHERE user_id = #{uid} AND deleted = false "
-                    + "AND (#{layer} IS NULL OR layer = #{layer}) "
+                    + "AND (#{layer}::text IS NULL OR layer = #{layer}) "
                     + "ORDER BY updated_at DESC, id DESC")
     List<CardSummary> listByUser(@Param("uid") long userId, @Param("layer") String layer);
 

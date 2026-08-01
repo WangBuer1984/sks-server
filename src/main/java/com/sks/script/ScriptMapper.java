@@ -87,7 +87,7 @@ public interface ScriptMapper extends BaseMapper<Script> {
     /** 当前用户的稿件列表（可选 review_state 过滤），按更新时间倒序。 */
     @Select(
             "SELECT id, user_id, topic_id, platform, review_state, created_at, updated_at FROM script "
-                    + "WHERE user_id = #{userId} AND (#{state} IS NULL OR review_state = #{state}) "
+                    + "WHERE user_id = #{userId} AND (#{state}::text IS NULL OR review_state = #{state}) "
                     + "ORDER BY updated_at DESC, id DESC")
     List<Script> listByUser(@Param("userId") long userId, @Param("state") String state);
 
