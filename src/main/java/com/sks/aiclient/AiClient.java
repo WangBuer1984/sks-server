@@ -374,7 +374,9 @@ public class AiClient {
                 new ByteArrayResource(audioBytes) {
                     @Override
                     public String getFilename() {
-                        return "audio.wav";
+                        // 前端 MediaRecorder 恒发 audio/webm（Chrome/Firefox 默认）；
+                        // 之前硬编码 audio.wav → Python _infer_format 误判为 wav → ASR 失败。
+                        return "audio.webm";
                     }
                 });
         return restClient
