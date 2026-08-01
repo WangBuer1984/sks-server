@@ -32,7 +32,7 @@ import org.springframework.stereotype.Service;
  *   <li><b>video/link（异步）</b>：插占位 → 扣 1 → 调 {@link AiClient#analyzeVideoLink}（Python 202）
  *       → 返回 taskId。Python BackgroundTasks 写进度，{@link AnalyzeTaskPoller} 轮询。
  *   <li><b>account（异步）</b>：precheck（免费，不扣）→ 不可达/N=0 拒绝不扣；N=precheck.video_count
- *       → charge = {@code max(1, min(10, floor(N/2)))} → 插占位 → 扣 charge → 调
+ *       → charge = 10（固定） → 插占位 → 扣 charge → 调
  *       {@link AiClient#analyzeAccount}（202）→ 返回 taskId。轮询器负责 done→benchmark 选题 + 三态退款。
  * </ul>
  */
@@ -123,7 +123,7 @@ public class AnalyzeService {
     }
 
     /**
-     * 拆账号——异步模式：precheck（免费）→ charge = max(1, min(10, floor(N/2))) → 扣 → 调 Python 202。
+     * 拆账号——异步模式：precheck（免费）→ charge = 10（固定，ACCOUNT_CHARGE） → 扣 → 调 Python 202。
      *
      * <p>预检不可达 / N=0 → 拒绝，<b>不扣费不建任务</b>（brief {@code accountPrecheckFailureDoesNotCharge}）。
      * 抓取阶段整体失败（Python BackgroundTasks failed）由轮询器全额退款 + 提示改用拆视频（PRD §11.3）。

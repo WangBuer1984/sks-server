@@ -22,7 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
  * <ul>
  *   <li>{@code POST /video/text} —— 同步：粘文案 → 结构化拆解（扣 1，一次 JSON 返回，无流式）。
  *   <li>{@code POST /video/link} —— 异步：粘链接 → 返回 taskId，前端轮询。
- *   <li>{@code POST /account} —— 异步：粘账号链接 → precheck → 扣 {@code max(1,min(10,floor(N/2)))} →
+ *   <li>{@code POST /account} —— 异步：粘账号链接 → precheck → 扣 10 条（固定）→
  *       返回 taskId，前端轮询。
  *   <li>{@code GET /tasks/{id}} —— 任务详情（含 status/progress/result + TOP20 明细，IDOR 校验）。
  * </ul>
@@ -56,7 +56,7 @@ public class AnalyzeController {
         return ApiResponse.ok(new TaskAccepted(taskId));
     }
 
-    /** 拆账号——异步。precheck → 扣 {@code max(1,min(10,floor(N/2)))} → 返回 taskId。 */
+    /** 拆账号——异步。precheck → 扣 10 条（固定）→ 返回 taskId。 */
     @PostMapping("/account")
     public ApiResponse<TaskAccepted> account(
             @AuthenticationPrincipal Long userId, @RequestBody AccountRequest req) {

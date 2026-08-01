@@ -424,7 +424,7 @@ public class AiClient {
      * Python {@code POST /ai/analyze/precheck {url}} 响应（对齐 PrecheckResponse）。
      *
      * <p>{@code video_count} 为 TikHub 首页<b>估算</b>（≤20，Task 3.1 Q2 fix），非精确总数——
-     * 拆账号扣费公式 {@code max(1,min(10,floor(N/2)))} 用此估算，是 §4.3 接受的契约。
+     * 拆账号固定扣 10 条；precheck 仅校验账号可达 + 有视频（不再用 N 估算扣费）。
      */
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record Precheck(boolean reachable, @JsonProperty("video_count") int videoCount) {}

@@ -130,7 +130,7 @@ class AnalyzeServiceTest extends AbstractDbTest {
     void partialTaskRefundsUnfinishedProportion() {
         creditService.credit(uid, 10, "recharge", "o1", null);
         when(aiClient.precheck(any())).thenReturn(new AiClient.Precheck(true, 20));
-        long taskId = analyzeService.startAccount(uid, "ok-url"); // 扣 max(1,min(10,floor(20/2)))=10
+        long taskId = analyzeService.startAccount(uid, "ok-url"); // 固定扣 10 条
         analyzeTaskMapper.markPartial(taskId, 50); // 完成一半
         poller.reconcile();
         assertEquals(5, creditService.balance(uid)); // 退未完成的一半
@@ -339,7 +339,7 @@ class AnalyzeServiceTest extends AbstractDbTest {
         assertEquals(1, refundCount("analyze_video"));
     }
 
-    /** §4.3 account 额度公式：charge = max(1, min(10, floor(N/2)))。N=4→2, N=20→10, N=1→1。 */
+    /** §4.3 account 额度公式：charge = 10（固定，非 floor(N/2)）。 */
     @Test
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     void accountChargeFormula() {
