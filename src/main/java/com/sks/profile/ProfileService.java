@@ -111,6 +111,16 @@ public class ProfileService {
         persistConfirm(userId, result.profile(), aCards);
     }
 
+    /** passthrough：拼 threadId → 调 sks-ai sample-opening。found=false → PARAM_INVALID。不落库。 */
+    public AiClient.SampleOpeningResponse sampleOpening(long userId, String sessionId, String topic) {
+        String threadId = userId + ":" + sessionId;
+        AiClient.SampleOpeningResponse resp = aiClient.sampleOpening(userId, threadId, topic);
+        if (!resp.found()) {
+            throw new BizException(ErrorCode.PARAM_INVALID, "访谈尚未完成，无法生成样稿");
+        }
+        return resp;
+    }
+
     /**
      * 短事务：旧 active 翻 false + 插新 active（version=max+1）+ 批量建 A 层卡（复用
      * {@link KbCardService#create}：A 层无 embedding、safetyCheck belt-and-suspenders）。

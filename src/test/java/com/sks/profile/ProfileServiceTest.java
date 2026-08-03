@@ -1,8 +1,12 @@
 package com.sks.profile;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -10,6 +14,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.sks.AbstractDbTest;
 import com.sks.aiclient.AiClient;
+import com.sks.common.BizException;
 import com.sks.kb.KbCardMapper;
 import com.sks.kb.KbCardService;
 import com.sks.user.AppUser;
@@ -101,6 +106,35 @@ class ProfileServiceTest extends AbstractDbTest {
         profileService.confirm(uid, "s2"); // v2
         assertEquals(2, profileMapper.countByUser(uid));
         assertEquals(1, profileMapper.countActiveByUser(uid)); // 只有一条 active
+    }
+
+    // ---- sample-opening passthrough（brief Task 2）---------------------------
+
+    /** §校准：sample-opening found=true 透传两版开场钩子（with → withHook accessor）。 */
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    void sampleOpeningFoundReturnsHooks() {
+        // 3rd arg topic is null in the service call; anyString() does NOT match null → use nullable.
+        when(aiClient.sampleOpening(anyLong(), anyString(), nullable(String.class)))
+                .thenReturn(
+                        new AiClient.SampleOpeningResponse(
+                                true, "报价为什么差一倍", "无档案版开头", "有档案版开头"));
+        AiClient.SampleOpeningResponse resp =
+                profileService.sampleOpening(uid, "sess-1", null);
+        assertTrue(resp.found());
+        assertEquals("报价为什么差一倍", resp.topic());
+        assertEquals("有档案版开头", resp.withHook());
+    }
+
+    /** §校准：sample-opening found=false → PARAM_INVALID(4005)。 */
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    void sampleOpeningNotFoundThrowsParamInvalid() {
+        when(aiClient.sampleOpening(anyLong(), anyString(), nullable(String.class)))
+                .thenReturn(new AiClient.SampleOpeningResponse(false, null, null, null));
+        assertThrows(
+                BizException.class,
+                () -> profileService.sampleOpening(uid, "sess-1", null));
     }
 
     // ---- 辅助 ----------------------------------------------------------------

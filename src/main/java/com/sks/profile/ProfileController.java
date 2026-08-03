@@ -1,6 +1,7 @@
 package com.sks.profile;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.sks.aiclient.AiClient;
 import com.sks.aiclient.AiClient.InterviewStepResponse;
 import com.sks.common.ApiResponse;
 import com.sks.common.BizException;
@@ -100,11 +101,27 @@ public class ProfileController {
         return ApiResponse.ok(null);
     }
 
+    /**
+     * 样稿开场钩子（两版：无档案 / 有档案）。passthrough → sks-ai sample-opening；
+     * 访谈未完成（found=false）→ PARAM_INVALID(4005)。
+     */
+    @PostMapping("/sample-opening")
+    public ApiResponse<AiClient.SampleOpeningResponse> sampleOpening(
+            @AuthenticationPrincipal Long userId, @RequestBody SampleOpeningRequest req) {
+        if (req.sessionId() == null || req.sessionId().isBlank()) {
+            throw new BizException(ErrorCode.PARAM_INVALID, "sessionId 不能为空");
+        }
+        return ApiResponse.ok(profileService.sampleOpening(userId, req.sessionId(), req.topic()));
+    }
+
     /** 访谈推进请求体。首轮 materials 非空、reply=null；后续轮 reply 非空、materials=null。 */
     public record InterviewRequest(String sessionId, String reply, String materials) {}
 
     /** confirm 请求体。 */
     public record ConfirmRequest(String sessionId) {}
+
+    /** sample-opening 请求体。topic 省略时 Python 默认「报价为什么差一倍」。 */
+    public record SampleOpeningRequest(String sessionId, String topic) {}
 
     /**
      * /interview 响应体（对齐 Python {@code InterviewStepResponse} + 工作台横幅文案 {@code banner}）。

@@ -161,14 +161,18 @@ admin 链 `@Order` 更小 → 更具体路径先匹配。user token 访问 `/api
 
 | 方法 | 路径 | 请求 | `data` |
 |---|---|---|---|
+| GET | `/api/profile` | — | `ActiveProfileView` |
 | POST | `/api/profile/interview` | `{sessionId, reply, materials}` | `InterviewStepView` |
 | POST | `/api/profile/voice` | `multipart`，字段名 **`audio`** | `String`（转写文本） |
 | POST | `/api/profile/confirm` | `{sessionId}` | `null` |
+| POST | `/api/profile/sample-opening` | `{sessionId, topic}` | `SampleOpeningResponse` |
 
 - 首轮带 `materials`、`reply=null`；后续轮反之。
 - `InterviewStepView`：`{stage, question, profileDraft, done, blocked, banner}`。`profileDraft` 是 JSON **对象**（`JsonNode`），`done=true` 时前端展示档案草稿 + 确认按钮。
 - `voice` 音频为空返回 4005；ASR 失败返回 5001，前端提示改用文字输入，**不阻断访谈**。
 - 校准全程**免费**，无额度扣减。`confirm` 时访谈未完成返回 4005。
+- `ActiveProfileView`：`{calibrated, version, calibratedAt, content}`。无 active 行返 `calibrated=false`（非 404）。
+- `sample-opening`：调用前需先走完访谈（checkpoint 有 profile）；未完成返 4005。`topic` 省略时默认「报价为什么差一倍」。返回 `{found, topic, without, with}` 两版开场钩子。
 
 ### 选题
 

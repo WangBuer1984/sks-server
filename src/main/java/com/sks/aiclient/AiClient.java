@@ -328,6 +328,49 @@ public class AiClient {
         return get("/ai/interview/result?thread_id={tid}", InterviewResultResponse.class, threadId);
     }
 
+    // ---- sample-opening（D1 Task 2 校准对话页对齐：开场钩子样稿 passthrough）----
+
+    /**
+     * Python {@code POST /ai/interview/sample-opening} 请求体（见 sks-ai sample_opening.py SampleOpeningRequest）。
+     *
+     * <p>字段名用 {@code @JsonProperty} 对齐 Python snake_case（{@code user_id} / {@code thread_id}）。
+     * {@code topic} 为 null 时 Jackson 序列化为 {@code null}（Python {@code topic: str | None} 兼容）——
+     * 省略时 Python 默认「报价为什么差一倍」。
+     */
+    public record SampleOpeningRequest(
+            @JsonProperty("user_id") long userId,
+            @JsonProperty("thread_id") String threadId,
+            @JsonProperty("topic") String topic) {}
+
+    /**
+     * Python {@code POST /ai/interview/sample-opening} 响应（见 SampleOpeningResponse）。
+     *
+     * <p>{@code with} 是 Java 关键字不能作字段名，用 {@code withHook} + {@code @JsonProperty("with")}
+     * 对齐 Python 出参键；序列化/反序列化都走 {@code "with"}。{@code found=false} 表示无 checkpoint
+     * （访谈未完成）——由 {@link com.sks.profile.ProfileService#sampleOpening} 翻译为
+     * {@link ErrorCode#PARAM_INVALID}。直接当 API view（passthrough 无需独立 view record）。
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record SampleOpeningResponse(
+            boolean found,
+            String topic,
+            @JsonProperty("without") String without,
+            @JsonProperty("with") String withHook) {}
+
+    /**
+     * 调 Python {@code POST /ai/interview/sample-opening}，返回两版开场钩子（无档案 / 有档案）。
+     *
+     * <p>{@code threadId} 由 Java 构造为 {@code "userId:sessionId"}（与 {@link #interviewResult} 对齐）。
+     * 非 2xx（含 token 不匹配 / 超时）由基座 {@link #post} 翻译为 {@link BizException}(AI_FAILED)。
+     * 校准免费，无额度逻辑——{@code found=false} 由 service 翻译，不在此抛。
+     */
+    public SampleOpeningResponse sampleOpening(long userId, String threadId, String topic) {
+        return post(
+                "/ai/interview/sample-opening",
+                new SampleOpeningRequest(userId, threadId, topic),
+                SampleOpeningResponse.class);
+    }
+
     /** Python {@code POST /ai/asr} 响应体 {@code {"text":"..."}}（见 sks-ai/app/api/asr.py ASRResponse）。 */
     @JsonIgnoreProperties(ignoreUnknown = true)
     private record AsrResponse(String text) {}
