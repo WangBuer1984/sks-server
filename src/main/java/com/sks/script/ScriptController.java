@@ -134,14 +134,25 @@ public class ScriptController {
         }
     }
 
-    /** 稿件列表项（轻量，不含 hook/body/cta）。 */
+    /**
+     * 稿件列表项（轻量，不含 hook/body/cta）。
+     *
+     * <p><b>D4 Task 2</b>：加 {@code topicTitle}（listByUser JOIN topic 承接）+ 5 指标列
+     * （play/like/comment/share/collect），供复盘列表展示真指标 + 选题标题。
+     */
     public record ScriptSummary(
             Long id,
             Long topicId,
             String platform,
             String reviewState,
             OffsetDateTime createdAt,
-            OffsetDateTime updatedAt) {
+            OffsetDateTime updatedAt,
+            String topicTitle,
+            Integer playCount,
+            Integer likeCount,
+            Integer commentCount,
+            Integer shareCount,
+            Integer collectCount) {
         public static ScriptSummary of(Script s) {
             return new ScriptSummary(
                     s.getId(),
@@ -149,7 +160,13 @@ public class ScriptController {
                     s.getPlatform(),
                     s.getReviewState(),
                     s.getCreatedAt(),
-                    s.getUpdatedAt());
+                    s.getUpdatedAt(),
+                    s.getTopicTitle(),
+                    s.getPlayCount(),
+                    s.getLikeCount(),
+                    s.getCommentCount(),
+                    s.getShareCount(),
+                    s.getCollectCount());
         }
     }
 }

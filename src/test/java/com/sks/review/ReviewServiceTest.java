@@ -2,7 +2,6 @@ package com.sks.review;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -45,8 +44,11 @@ import org.springframework.transaction.annotation.Transactional;
  * 覆盖（无 Spring）；本类覆盖「纯函数结果落到 DB + 副作用编排」的集成路径。
  *
  * <p><b>no AI judges state</b>（CLAUDE.md 硬不变量）：本类断言态迁移全部由纯函数决定——
- * {@link #playCountAboveThresholdBecomesHotPersists} 等用 mocked attributionSingle/cardGen 验证
+ * {@link #trackFetchesMetricsAndClassifiesHot} 等用 mocked fetchVideoMetrics/cardGen 验证
  * 副作用在态已定后编排，不反过来影响态。
+ *
+ * <p><b>track 自动抓真指标</b>（D4 Task 2）：track 登记→fetchVideoMetrics→markMetrics+classify，
+ * data_source='tikhub'。旧 {@code play} 端点已删——track 一站到底（pending→tracking→classify）。
  *
  * <p><b>事务隔离</b>：复盘是 FREE（无额度链路），但 hot 副作用的 cardGen HTTP 调用在事务外、写卡各走
  * 独立短事务——本测试标 {@code NOT_SUPPORTED} 让各 service 调用独立提交，{@code cleanup} 显式清理。
@@ -100,60 +102,85 @@ class ReviewServiceTest extends AbstractDbTest {
         jdbcTemplate.update("DELETE FROM app_user WHERE id IN (" + in + ")");
     }
 
-    // ---- play-count → classify 落库（热款 / 平平 / 扑街）----
+    // ---- track 自动抓真指标 → classify 落库（热款 / 平平 / 扑街）----
 
-    /** tracking + 播放量超阈值 → hot 落库 + play_count + data_source=manual。 */
+    /** pending + track → fetch metrics（play=9000 超 hot 阈值 6000）→ hot 落库 + 5 指标 + data_source=tikhub。 */
     @Test
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    void playCountAboveThresholdBecomesHotPersists() {
-        // 先插一条历史 flop 稿（play_count=2000）建立 baseline，使 avg=2000 → hot 阈值 6000
-        insertFinalizedScript("flop", 2000);
-        long sid = insertTrackingScript();
+    void trackFetchesMetricsAndClassifiesHot() {
+        when(aiClient.fetchVideoMetrics("https://v.douyin.com/abc"))
+                .thenReturn(new AiClient.VideoMetricsResponse(true, 9000, 100, 10, 5, 8));
         when(aiClient.cardGen(anyLong(), any(), eq("C")))
                 .thenReturn(new AiClient.CardGenResult(false, List.of(), List.of(), List.of()));
-        String state = reviewService.play(uid, sid, 9000);
-        assertEquals("hot", state);
+        insertFinalizedScript("flop", 2000); // baseline avg=2000, hot 阈值 6000
+        long sid = insertTrackingScript(); // 已 pending→tracking（见 helper，SQL 直置不触发 fetch）
+        ReviewService.TrackResponse r = reviewService.track(uid, sid, "https://v.douyin.com/abc");
+        assertEquals("hot", r.reviewState());
+        assertEquals(9000, r.playCount());
+        assertEquals(100, r.likeCount());
         assertEquals(
-                "hot",
+                "tikhub",
                 jdbcTemplate.queryForObject(
-                        "SELECT review_state FROM script WHERE id = ?", String.class, sid));
+                        "SELECT data_source FROM script WHERE id=?", String.class, sid));
         assertEquals(
-                9000,
+                100,
                 jdbcTemplate.queryForObject(
-                        "SELECT play_count FROM script WHERE id = ?", Integer.class, sid));
-        assertEquals(
-                "manual",
-                jdbcTemplate.queryForObject(
-                        "SELECT data_source FROM script WHERE id = ?", String.class, sid));
+                        "SELECT like_count FROM script WHERE id=?", Integer.class, sid));
     }
 
-    /** tracking + 播放量带内 → plain 落库。无历史 baseline（avg=0）→ plain。 */
+    /** pending + track + 无历史 baseline（avg=0）→ fetch 低播放量 → plain 落库 + publish_url + data_source=tikhub。 */
     @Test
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    void playCountNoHistoryBecomesPlainPersists() {
-        long sid = insertTrackingScript();
-        String state = reviewService.play(uid, sid, 12345); // 无历史 avg=0 → plain
-        assertEquals("plain", state);
+    void trackPendingFetchesAndClassifiesPlainPersists() {
+        when(aiClient.fetchVideoMetrics("https://v.douyin.com/abc"))
+                .thenReturn(new AiClient.VideoMetricsResponse(true, 100, 0, 0, 0, 0));
+        long sid = insertDraftScript();
+        reviewService.adopt(uid, sid);
+        ReviewService.TrackResponse r = reviewService.track(uid, sid, "https://v.douyin.com/abc");
+        assertEquals("plain", r.reviewState());
         assertEquals(
                 "plain",
                 jdbcTemplate.queryForObject(
                         "SELECT review_state FROM script WHERE id = ?", String.class, sid));
+        assertEquals(
+                "https://v.douyin.com/abc",
+                jdbcTemplate.queryForObject(
+                        "SELECT publish_url FROM script WHERE id = ?", String.class, sid));
+        assertEquals(
+                "tikhub",
+                jdbcTemplate.queryForObject(
+                        "SELECT data_source FROM script WHERE id = ?", String.class, sid));
         verify(aiClient, never()).cardGen(anyLong(), any(), any()); // plain 无 hot 副作用
     }
 
-    /** tracking + 播放量低于下界 → flop 落库（有历史 baseline）。 */
+    /** tracking + track（found=false）→ PARAM_INVALID；态留 tracking，url 已存（markTracking 已覆盖 url）。 */
     @Test
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    void playCountBelowThresholdBecomesFlopPersists() {
-        insertFinalizedScript("plain", 2000);
+    void trackNotFoundThrowsParamInvalid() {
         long sid = insertTrackingScript();
-        String state = reviewService.play(uid, sid, 500);
-        assertEquals("flop", state);
+        when(aiClient.fetchVideoMetrics(any()))
+                .thenReturn(new AiClient.VideoMetricsResponse(false, 0, 0, 0, 0, 0));
+        assertThrows(BizException.class, () -> reviewService.track(uid, sid, "https://bad"));
+        // state 留 tracking，url 已存
         assertEquals(
-                "flop",
+                "tracking",
                 jdbcTemplate.queryForObject(
-                        "SELECT review_state FROM script WHERE id = ?", String.class, sid));
-        verify(aiClient, never()).cardGen(anyLong(), any(), any()); // flop 无 hot 副作用
+                        "SELECT review_state FROM script WHERE id=?", String.class, sid));
+    }
+
+    /** tracking → track（hot）→ 再 track 同 url（已是 hot 终态）→ PARAM_INVALID（终态不可再 track）。 */
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    void trackRetryFromTrackingRefetches() {
+        when(aiClient.fetchVideoMetrics("https://v.douyin.com/abc"))
+                .thenReturn(new AiClient.VideoMetricsResponse(true, 9000, 1, 0, 0, 0));
+        when(aiClient.cardGen(anyLong(), any(), eq("C")))
+                .thenReturn(new AiClient.CardGenResult(false, List.of(), List.of(), List.of()));
+        insertFinalizedScript("flop", 2000);
+        long sid = insertTrackingScript();
+        reviewService.track(uid, sid, "https://v.douyin.com/abc"); // hot
+        // 再 track 同 url（已是 hot，非法态）
+        assertThrows(BizException.class, () -> reviewService.track(uid, sid, "https://v.douyin.com/abc"));
     }
 
     // ---- hot 副作用（cardGen C + 续集选题）----
@@ -163,12 +190,14 @@ class ReviewServiceTest extends AbstractDbTest {
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     void hotSideEffectsCreateCCardAndReplayTopic() {
         insertFinalizedScript("flop", 2000);
-        long sid = insertTrackingScript();
+        when(aiClient.fetchVideoMetrics("https://v.douyin.com/abc"))
+                .thenReturn(new AiClient.VideoMetricsResponse(true, 9000, 0, 0, 0, 0));
         AiClient.CardGenCard card =
                 new AiClient.CardGenCard("quote", "爆款金句", section("爆款素材句"));
         when(aiClient.cardGen(anyLong(), any(), eq("C")))
                 .thenReturn(new AiClient.CardGenResult(false, List.of(card), List.of(), List.of()));
-        reviewService.play(uid, sid, 9000); // → hot
+        long sid = insertTrackingScript();
+        reviewService.track(uid, sid, "https://v.douyin.com/abc"); // → hot
         // C 层卡落库
         int cCards =
                 jdbcTemplate.queryForObject(
@@ -182,7 +211,7 @@ class ReviewServiceTest extends AbstractDbTest {
                         "SELECT COUNT(*) FROM topic WHERE user_id = ? AND source = 'replay'",
                         Integer.class,
                         uid);
-        assertTrue(replayTopics >= 1, "续集选题应已落库");
+        assertEquals(1, replayTopics);
     }
 
     /** hot → cardGen 抛异常 → 降级 log，态仍为 hot，无卡 / 无续集选题。 */
@@ -190,11 +219,13 @@ class ReviewServiceTest extends AbstractDbTest {
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     void hotSideEffectCardGenFailureDegradesStateStaysHot() {
         insertFinalizedScript("flop", 2000);
-        long sid = insertTrackingScript();
+        when(aiClient.fetchVideoMetrics("https://v.douyin.com/abc"))
+                .thenReturn(new AiClient.VideoMetricsResponse(true, 9000, 0, 0, 0, 0));
         when(aiClient.cardGen(anyLong(), any(), any()))
                 .thenThrow(new RuntimeException("ai down"));
-        String state = reviewService.play(uid, sid, 9000);
-        assertEquals("hot", state); // 态已定，副作用失败不回退
+        long sid = insertTrackingScript();
+        ReviewService.TrackResponse r = reviewService.track(uid, sid, "https://v.douyin.com/abc");
+        assertEquals("hot", r.reviewState()); // 态已定，副作用失败不回退
         assertEquals(
                 "hot",
                 jdbcTemplate.queryForObject(
@@ -213,9 +244,12 @@ class ReviewServiceTest extends AbstractDbTest {
     @Test
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     void flopAttributeReturnsDiagnosisFree() {
-        insertFinalizedScript("plain", 2000);
-        long sid = insertTrackingScript();
-        reviewService.play(uid, sid, 500); // → flop
+        insertFinalizedScript("plain", 2000); // baseline avg=2000, flop 阈值 1000
+        when(aiClient.fetchVideoMetrics("https://v.douyin.com/abc"))
+                .thenReturn(new AiClient.VideoMetricsResponse(true, 500, 0, 0, 0, 0));
+        long sid = insertDraftScript();
+        reviewService.adopt(uid, sid);
+        reviewService.track(uid, sid, "https://v.douyin.com/abc"); // 500 < 1000 → flop
         when(aiClient.attributionSingle(any(), anyInt(), anyDouble()))
                 .thenReturn(new AiClient.AttributionSingleResult(
                         "钩子不够抓人", List.of("加强开头悬念"), false));
@@ -239,8 +273,11 @@ class ReviewServiceTest extends AbstractDbTest {
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     void flopAttributeBlockedThrowsContentBlocked() {
         insertFinalizedScript("plain", 2000);
-        long sid = insertTrackingScript();
-        reviewService.play(uid, sid, 500); // → flop
+        when(aiClient.fetchVideoMetrics("https://v.douyin.com/abc"))
+                .thenReturn(new AiClient.VideoMetricsResponse(true, 500, 0, 0, 0, 0));
+        long sid = insertDraftScript();
+        reviewService.adopt(uid, sid);
+        reviewService.track(uid, sid, "https://v.douyin.com/abc"); // → flop
         when(aiClient.attributionSingle(any(), anyInt(), anyDouble()))
                 .thenReturn(new AiClient.AttributionSingleResult(null, List.of(), true));
         BizException e =
@@ -274,23 +311,6 @@ class ReviewServiceTest extends AbstractDbTest {
                         "SELECT review_state FROM script WHERE id = ?", String.class, sid));
     }
 
-    /** pending → track(url) → tracking 落库 + publish_url。 */
-    @Test
-    @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    void trackPendingToTrackingPersists() {
-        long sid = insertDraftScript();
-        reviewService.adopt(uid, sid);
-        reviewService.track(uid, sid, "https://v.douyin.com/abc");
-        assertEquals(
-                "tracking",
-                jdbcTemplate.queryForObject(
-                        "SELECT review_state FROM script WHERE id = ?", String.class, sid));
-        assertEquals(
-                "https://v.douyin.com/abc",
-                jdbcTemplate.queryForObject(
-                        "SELECT publish_url FROM script WHERE id = ?", String.class, sid));
-    }
-
     /** draft 直接 track（未 adopt）→ PARAM_INVALID（状态机拒绝 draft+TRACK）。 */
     @Test
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
@@ -298,16 +318,6 @@ class ReviewServiceTest extends AbstractDbTest {
         long sid = insertDraftScript();
         BizException e =
                 assertThrows(BizException.class, () -> reviewService.track(uid, sid, "https://x"));
-        assertEquals(ErrorCode.PARAM_INVALID, e.errorCode());
-    }
-
-    /** draft 直接 play（未 tracking）→ PARAM_INVALID（状态机拒绝 draft+PLAY_COUNT，brief 钉死）。 */
-    @Test
-    @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    void playOnDraftThrows() {
-        long sid = insertDraftScript();
-        BizException e =
-                assertThrows(BizException.class, () -> reviewService.play(uid, sid, 100));
         assertEquals(ErrorCode.PARAM_INVALID, e.errorCode());
     }
 
@@ -453,10 +463,18 @@ class ReviewServiceTest extends AbstractDbTest {
                 "SELECT max(id) FROM script WHERE user_id = ?", Long.class, userId);
     }
 
+    /**
+     * 插一条 tracking 态稿（draft→pending→tracking）。<b>D4 Task 2 后 track 自动 fetch+classify</b>，
+     * 故 helper 不走 {@link ReviewService#track}（会触发 fetch + 终态化）；直接 SQL 置 tracking，
+     * 让测试自行决定是否再调 track 触发 refetch。
+     */
     private long insertTrackingScript() {
         long sid = insertDraftScript();
         reviewService.adopt(uid, sid);
-        reviewService.track(uid, sid, "https://v.douyin.com/x");
+        jdbcTemplate.update(
+                "UPDATE script SET review_state = 'tracking', publish_url = 'https://v.douyin.com/x', "
+                        + "updated_at = now() WHERE id = ?",
+                sid);
         return sid;
     }
 

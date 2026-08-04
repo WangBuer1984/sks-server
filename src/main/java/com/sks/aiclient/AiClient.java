@@ -542,6 +542,35 @@ public class AiClient {
         return post("/ai/analyze/account", new AccountRequest(taskId, url), AnalyzeAccepted.class);
     }
 
+    // ---- video metrics（D4 Task 2 复盘真指标；Python GET /ai/analyze/video/metrics）----
+
+    /**
+     * Python {@code GET /ai/analyze/video/metrics?url=} 响应（对齐 sks-ai D4 Task 1
+     * {@code VideoMetricsResponse}）。{@code found=false} 表示链接无法识别为视频——
+     * 由 {@link com.sks.review.ReviewService#track} 翻译为 {@link ErrorCode#PARAM_INVALID}。
+     * 字段名用 {@code @JsonProperty} 对齐 Python snake_case。
+     */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record VideoMetricsResponse(
+            boolean found,
+            @JsonProperty("play_count") Integer playCount,
+            @JsonProperty("like_count") Integer likeCount,
+            @JsonProperty("comment_count") Integer commentCount,
+            @JsonProperty("share_count") Integer shareCount,
+            @JsonProperty("collect_count") Integer collectCount) {}
+
+    /**
+     * 调 Python {@code GET /ai/analyze/video/metrics?url=}，取真实播放量 + 互动指标（抖音 / 视频号）。
+     *
+     * <p>GET 复用 {@link #get} 基座（X-Service-Token + X-Request-Id + MDC + 重试 + 错误码翻译）。
+     * 非 2xx（含 token 不匹配 / TikHub 不可达 5xx / 超时）由基座翻译为 {@link BizException}(AI_FAILED)
+     * ——调用方 {@link ReviewService#track} 不额外处理，直接让 AI_FAILED 冒泡（用户可重试 track）。
+     * {@code found=false} 由调用方翻译，不在此抛。
+     */
+    public VideoMetricsResponse fetchVideoMetrics(String url) {
+        return get("/ai/analyze/video/metrics?url={url}", VideoMetricsResponse.class, url);
+    }
+
     // ---- attribution（Task 4.1 Python 端点 / Task 4.2 Java 客户端）----
 
     /**

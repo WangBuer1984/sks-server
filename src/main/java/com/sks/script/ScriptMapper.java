@@ -84,11 +84,21 @@ public interface ScriptMapper extends BaseMapper<Script> {
     @Select("SELECT * FROM script WHERE id = #{id} AND user_id = #{userId}")
     Script findById(@Param("id") long id, @Param("userId") long userId);
 
-    /** 当前用户的稿件列表（可选 review_state 过滤），按更新时间倒序。 */
+    /**
+     * 当前用户的稿件列表（可选 review_state 过滤），按更新时间倒序。
+     *
+     * <p><b>D4 Task 2</b>：LEFT JOIN topic 取选题标题（{@code t.user_id = s.user_id} 防跨用户串题），
+     * 并选 5 指标列（play/like/comment/share/collect）。{@link Script#topicTitle} 为 {@code @TableField(exist=false)}
+     * 承接 JOIN 结果，非实列。
+     */
     @Select(
-            "SELECT id, user_id, topic_id, platform, review_state, created_at, updated_at FROM script "
-                    + "WHERE user_id = #{userId} AND (#{state}::text IS NULL OR review_state = #{state}) "
-                    + "ORDER BY updated_at DESC, id DESC")
+            "SELECT s.id, s.user_id, s.topic_id, s.platform, s.review_state, s.created_at, s.updated_at, "
+                    + "s.play_count, s.like_count, s.comment_count, s.share_count, s.collect_count, "
+                    + "t.title AS topic_title "
+                    + "FROM script s "
+                    + "LEFT JOIN topic t ON t.id = s.topic_id AND t.user_id = s.user_id "
+                    + "WHERE s.user_id = #{userId} AND (#{state}::text IS NULL OR s.review_state = #{state}) "
+                    + "ORDER BY s.updated_at DESC, s.id DESC")
     List<Script> listByUser(@Param("userId") long userId, @Param("state") String state);
 
     /**
@@ -114,26 +124,40 @@ public interface ScriptMapper extends BaseMapper<Script> {
                     + "WHERE id = #{id} AND user_id = #{userId} AND review_state = 'draft'")
     int markPending(@Param("id") long id, @Param("userId") long userId);
 
-    /** pending → tracking（登记发布链接）+ 写 publish_url。守卫 review_state='pending'。 */
+    /**
+     * pending|tracking → tracking（登记 / 重抓发布链接）+ 写 publish_url。
+     *
+     * <p><b>D4 Task 2 放宽</b>：守卫 {@code review_state IN ('pending','tracking')}——tracking 重试覆盖
+     * url 重抓（旧版仅 pending，重抓时 rows=0）。pending 是首次登记，tracking 是 refetch（track 一站到底）。
+     */
     @Update(
             "UPDATE script SET review_state = 'tracking', publish_url = #{url}, updated_at = now() "
-                    + "WHERE id = #{id} AND user_id = #{userId} AND review_state = 'pending'")
+                    + "WHERE id = #{id} AND user_id = #{userId} AND review_state IN ('pending','tracking')")
     int markTracking(
             @Param("id") long id, @Param("userId") long userId, @Param("url") String url);
 
     /**
-     * tracking → hot/plain/flop（填播放量后判态）+ 写 play_count + data_source='manual'。
-     * 守卫 review_state='tracking'。state 由 {@link com.sks.review.ReviewStateMachine#classify} 决定。
+     * tracking → hot/plain/flop（fetchVideoMetrics 后判态）+ 写 5 指标 + data_source='tikhub'。
+     *
+     * <p><b>守卫 review_state='tracking'</b>（防竞态盖终态）：fetch 期间若态被并发改（如 RejectSweeper
+     * 不扫 tracking，但保险起见守卫），rows=0 → 调用方抛 PARAM_INVALID。state 由
+     * {@link com.sks.review.ReviewStateMachine#classify}（经 {@code transition(TRACKING, PLAY_COUNT, ctx)}）决定。
      */
     @Update(
             "UPDATE script SET review_state = #{state}, play_count = #{playCount}, "
-                    + "data_source = 'manual', updated_at = now() "
+                    + "like_count = #{likeCount}, comment_count = #{commentCount}, "
+                    + "share_count = #{shareCount}, collect_count = #{collectCount}, "
+                    + "data_source = 'tikhub', updated_at = now() "
                     + "WHERE id = #{id} AND user_id = #{userId} AND review_state = 'tracking'")
-    int markReviewState(
+    int markMetrics(
             @Param("id") long id,
             @Param("userId") long userId,
             @Param("state") String state,
-            @Param("playCount") int playCount);
+            @Param("playCount") int playCount,
+            @Param("likeCount") int likeCount,
+            @Param("commentCount") int commentCount,
+            @Param("shareCount") int shareCount,
+            @Param("collectCount") int collectCount);
 
     /**
      * 近 30 天已复盘稿（hot/plain/flop 且 play_count 非空）的播放量均值（§4.4「近30天均值」baseline）。

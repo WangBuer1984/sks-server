@@ -24,7 +24,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  * 决定（静态迁移表 + 双阈值带状数学），唯一的 LLM 调用 {@link AiClient#attributionSingle}（flop 归因）
  * <b>只返回诊断文本、不改态</b>——可证伪「LLM 影响态」的回归。
  *
- * <p><b>复盘是 FREE</b>（不扣额度）：adopt / track / play / attribute / feedback 全程不触
+ * <p><b>复盘是 FREE</b>（不扣额度）：adopt / track / attribute / feedback 全程不触
  * {@link com.sks.credit.CreditService} / 不写 credit_ledger。故事务边界比 §4.1 轻量——但仍守 §4.1 教训：
  * hot 副作用的 cardGen HTTP 调用在<b>事务外</b>（30-60s 长调用不持连接），写卡 / 写续集选题各走独立
  * {@link KbCardService#create} / {@link TopicService#create}（各自独立短事务，单卡失败不影响其他卡）。
@@ -90,47 +90,59 @@ public class ReviewService {
     }
 
     /**
-     * 登记发布链接：{@code pending → tracking} + 写 publish_url。IDOR。url 空白 → PARAM_INVALID。
-     * 非法态 → PARAM_INVALID。
+     * 登记发布链接 + 自动抓真指标判态：pending→tracking→markMetrics（hot/plain/flop）。
+     *
+     * <p><b>D4 Task 2 重写</b>：track 不再只登记，而是登记后立即调
+     * {@link AiClient#fetchVideoMetrics}（抖音 / 视频号真指标，经 sks-ai TikHub）→
+     * {@code transition(TRACKING, PLAY_COUNT, ctx)} classify → {@link ScriptMapper#markMetrics}
+     * 写 5 指标 + {@code data_source='tikhub'} + 终态。旧 {@code /play} 端点已删——track 一站到底。
+     *
+     * <p><b>态分流</b>：
+     * <ul>
+     *   <li><b>pending</b>：走 {@code transition(PENDING, TRACK)} 校验合法 + markTracking（首次登记）。
+     *   <li><b>tracking</b>：不走 TRACK 事件（已 tracking），markTracking 覆盖 url 重抓（refetch）。
+     *   <li><b>其它态</b>（draft/hot/plain/flop/rejected）：PARAM_INVALID（终态不可再 track）。
+     * </ul>
+     *
+     * <p><b>无 DB 连接的 HTTP 调用</b>（§4.1 教训）：markTracking 短事务置 tracking + url →
+     * fetchVideoMetrics 在事务外（Python 30-60s 不持连接）→ markMetrics 短事务守卫 tracking 落终态。
+     * found=false → PARAM_INVALID（态留 tracking，url 已存，可改 url 重试）；超时 / 5xx → AI_FAILED
+     * （AiClient.get 基座自动翻译，用户可重试 track）。hot 副作用 applyHotSideEffects best-effort 保留。
+     *
+     * @return {@link TrackResponse} 判定态 + 5 指标，供前端展示
      */
-    public void track(long userId, long scriptId, String url) {
+    public TrackResponse track(long userId, long scriptId, String url) {
         if (url == null || url.isBlank()) {
             throw new BizException(ErrorCode.PARAM_INVALID, "发布链接不能为空");
         }
         Script s = load(userId, scriptId);
-        transition(s.getReviewState(), ReviewEvent.TRACK, null);
-        int rows = scriptMapper.markTracking(scriptId, userId, url);
-        if (rows == 0) {
+        String st = s.getReviewState();
+        // pending → TRACK 事件校验 + markTracking；tracking → 不走 TRACK，markTracking 覆盖 url 重抓
+        if (ReviewStateMachine.PENDING.equals(st)) {
+            transition(st, ReviewEvent.TRACK, null); // 校验合法
+        } else if (!ReviewStateMachine.TRACKING.equals(st)) {
+            throw new BizException(ErrorCode.PARAM_INVALID, "当前状态不可登记链接");
+        }
+        if (scriptMapper.markTracking(scriptId, userId, url) == 0) {
             throw new BizException(ErrorCode.PARAM_INVALID, "稿件状态已变更，请刷新");
         }
-    }
-
-    /**
-     * 填播放量：{@code tracking → classify → hot/plain/flop} + 写 play_count（data_source=manual）。
-     *
-     * <p>先查近 30 天均值（baseline）→ 纯函数 classify 判态 → 落库。hot 副作用（cardGen C + 续集选题）
-     * best-effort，在态已落库后编排——HTTP 在事务外、写卡 / 写选题各走独立短事务；任何副作用失败
-     * log 降级，态仍为 hot（review 免费，不让副作用失败回退已定的态）。
-     *
-     * @return 判定后的复盘态（hot/plain/flop），供前端展示
-     */
-    public String play(long userId, long scriptId, int playCount) {
-        if (playCount < 0) {
-            throw new BizException(ErrorCode.PARAM_INVALID, "播放量不能为负");
+        AiClient.VideoMetricsResponse m = aiClient.fetchVideoMetrics(url); // 无 DB 连接
+        if (!m.found()) {
+            throw new BizException(ErrorCode.PARAM_INVALID, "链接无法识别为视频，请检查发布链接");
         }
-        Script s = load(userId, scriptId);
         double avg = scriptMapper.avgPlayCount30d(userId);
-        ReviewContext ctx = new ReviewContext(playCount, avg, hotThreshold, flopThreshold);
-        String next = transition(s.getReviewState(), ReviewEvent.PLAY_COUNT, ctx);
-        int rows = scriptMapper.markReviewState(scriptId, userId, next, playCount);
-        if (rows == 0) {
+        ReviewContext ctx = new ReviewContext(m.playCount(), avg, hotThreshold, flopThreshold);
+        String next = transition(ReviewStateMachine.TRACKING, ReviewEvent.PLAY_COUNT, ctx);
+        if (scriptMapper.markMetrics(scriptId, userId, next,
+                m.playCount(), m.likeCount(), m.commentCount(),
+                m.shareCount(), m.collectCount()) == 0) {
             throw new BizException(ErrorCode.PARAM_INVALID, "稿件状态已变更，请刷新");
         }
         if (ReviewStateMachine.HOT.equals(next)) {
-            // best-effort 副作用：态已落库为 hot，副作用失败不回退态
-            applyHotSideEffects(userId, s);
+            applyHotSideEffects(userId, s); // best-effort
         }
-        return next;
+        return new TrackResponse(next, m.playCount(), m.likeCount(), m.commentCount(),
+                m.shareCount(), m.collectCount());
     }
 
     /**
@@ -276,4 +288,8 @@ public class ReviewService {
 
     /** flop 归因视图：诊断 + 建议列表。 */
     public record AttributionView(String diagnosis, List<String> suggestions) {}
+
+    /** track 响应：判定态 + 5 指标（play/like/comment/share/collect），供前端展示。 */
+    public record TrackResponse(String reviewState, int playCount, int likeCount,
+                                int commentCount, int shareCount, int collectCount) {}
 }

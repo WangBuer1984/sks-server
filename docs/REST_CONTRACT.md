@@ -197,7 +197,7 @@ admin 链 `@Order` 更小 → 更具体路径先匹配。user token 访问 `/api
 
 - `ScriptDetail`：`{id, topicId, hook, body, cta, platform, reviewState, citedCardIds, createdAt, updatedAt, dedupWarnScriptId}`。`hook/body/cta` 是 JSON **文本**（形如 `{"sentences":[{"idx":0,"text":"..."}]}`）。
 - `dedupWarnScriptId` **仅 `POST /generate` 可能非空**（命中近复稿告警），其余端点恒为 `null`。
-- `ScriptSummary`：`{id, topicId, platform, reviewState, createdAt, updatedAt}`，不含正文三段。
+- `ScriptSummary`：`{id, topicId, platform, reviewState, createdAt, updatedAt, topicTitle, playCount, likeCount, commentCount, shareCount, collectCount}`，不含正文三段。`topicTitle` 由 listByUser LEFT JOIN topic 承接。
 - `generate` 扣额度：余额不足 4001；AI 失败 5001（**已退款**）；命中安全 5002（**已退款**）。
 - `rewrite-sentence` 只返回预览文本**不落库**，免费；命中安全直接 5002（无退款编排，原句保留）。
 
@@ -206,13 +206,14 @@ admin 链 `@Order` 更小 → 更具体路径先匹配。user token 访问 `/api
 | 方法 | 路径 | 请求 | `data` |
 |---|---|---|---|
 | POST | `/api/review/{scriptId}/adopt` | — | `null` |
-| POST | `/api/review/{scriptId}/track` | `{url}` | `null` |
-| POST | `/api/review/{scriptId}/play` | `{count}` | `{reviewState}` |
+| POST | `/api/review/{scriptId}/track` | `{url}` | `TrackResponse`（**BREAKING**，旧为 `null`） |
 | POST | `/api/review/{scriptId}/attribute` | — | `{diagnosis, suggestions}` |
 | POST | `/api/review/{scriptId}/feedback` | `{reason}` | `null` |
 | GET | `/api/review/weekly?week=` | — | `JsonNode`（周报 JSON 对象） |
 
-`attribute` **免费**且**不改复盘态**；命中安全返回 5002。
+- `track` 登记链接后自动抓真指标（抖音 + 视频号）判态，`data_source='tikhub'`；`found=false`→4005，抓取失败→5001 可重试。旧 `/play` 端点已删（track 一站到底）。
+- `TrackResponse`：`{reviewState, playCount, likeCount, commentCount, shareCount, collectCount}`。
+- `attribute` **免费**且**不改复盘态**；命中安全返回 5002。
 
 ### 拆解
 
@@ -251,16 +252,16 @@ admin 链 `@Order` 更小 → 更具体路径先匹配。user token 访问 `/api
 
 ## 6. 复盘状态机取值
 
-`reviewState` 出现在 `ScriptDetail` / `ScriptSummary` / `PlayResponse`。七个终值（`ReviewStateMachine`）：
+`reviewState` 出现在 `ScriptDetail` / `ScriptSummary` / `TrackResponse`。七个终值（`ReviewStateMachine`）：
 
 | 值 | 含义 | 入口 |
 |---|---|---|
 | `draft` | 生成后未采用 | 生成成功 |
 | `pending` | 已采用，待登记发布链接 | `draft + adopt` |
-| `tracking` | 已登记链接，待填播放量 | `pending + track` |
-| `hot` | 爆款 | `tracking + play`，`play >= avg × 3` |
-| `plain` | 平平（带内） | `tracking + play`，两阈值之间；**无 baseline 时首条稿也判 plain** |
-| `flop` | 扑街 | `tracking + play`，`play < avg × 0.5` |
+| `tracking` | 已登记链接，待抓真指标判态 | `pending + track` |
+| `hot` | 爆款 | `tracking + track`（auto-fetch），`play >= avg × 3` |
+| `plain` | 平平（带内） | `tracking + track`（auto-fetch），两阈值之间；**无 baseline 时首条稿也判 plain** |
+| `flop` | 扑街 | `tracking + track`（auto-fetch），`play < avg × 0.5` |
 | `rejected` | 48h 未采用的 draft | `RejectSweeper` 定时扫（**只扫 draft，不扫 pending**） |
 
 `avg` = 近 30 天已复盘稿（`hot`/`plain`/`flop` 且播放量非空）的播放量均值。阈值可配：`sks.review.hot-threshold`（默认 3.0）/ `sks.review.flop-threshold`（默认 0.5）。

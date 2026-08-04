@@ -1,6 +1,7 @@
 package com.sks.script;
 
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -34,9 +35,17 @@ public class Script {
     private String reviewState;
     private String publishUrl;
     private Integer playCount;
+    private Integer likeCount;
+    private Integer commentCount;
+    private Integer shareCount;
+    private Integer collectCount;
     private String dataSource;
     private OffsetDateTime createdAt;
     private OffsetDateTime updatedAt;
+
+    /** listByUser JOIN topic 承接的选题标题，非实列（不参与 INSERT/UPDATE）。 */
+    @TableField(exist = false)
+    private String topicTitle;
 
     public Long getId() {
         return id;
@@ -116,6 +125,46 @@ public class Script {
 
     public void setPlayCount(Integer playCount) {
         this.playCount = playCount;
+    }
+
+    public Integer getLikeCount() {
+        return likeCount;
+    }
+
+    public void setLikeCount(Integer likeCount) {
+        this.likeCount = likeCount;
+    }
+
+    public Integer getCommentCount() {
+        return commentCount;
+    }
+
+    public void setCommentCount(Integer commentCount) {
+        this.commentCount = commentCount;
+    }
+
+    public Integer getShareCount() {
+        return shareCount;
+    }
+
+    public void setShareCount(Integer shareCount) {
+        this.shareCount = shareCount;
+    }
+
+    public Integer getCollectCount() {
+        return collectCount;
+    }
+
+    public void setCollectCount(Integer collectCount) {
+        this.collectCount = collectCount;
+    }
+
+    public String getTopicTitle() {
+        return topicTitle;
+    }
+
+    public void setTopicTitle(String topicTitle) {
+        this.topicTitle = topicTitle;
     }
 
     public String getDataSource() {
