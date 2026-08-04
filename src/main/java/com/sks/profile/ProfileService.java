@@ -153,6 +153,7 @@ public class ProfileService {
                     } catch (BizException e) {
                         throw e;  // CONTENT_BLOCKED 等业务异常原样冒泡，不被 AI_FAILED 掩盖
                     } catch (Exception e) {
+                        log.error("persistConfirm 落库失败 user={}", userId, e);
                         throw new BizException(ErrorCode.AI_FAILED, "档案落库失败");
                     }
                 });
