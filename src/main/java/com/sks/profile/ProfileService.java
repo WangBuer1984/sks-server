@@ -150,6 +150,8 @@ public class ProfileService {
                         for (AiClient.CardGenCard c : aCards) {
                             kbCardService.create(userId, "A", c.cardType(), c.title(), c.content().toString());
                         }
+                    } catch (BizException e) {
+                        throw e;  // CONTENT_BLOCKED 等业务异常原样冒泡，不被 AI_FAILED 掩盖
                     } catch (Exception e) {
                         throw new BizException(ErrorCode.AI_FAILED, "档案落库失败");
                     }
