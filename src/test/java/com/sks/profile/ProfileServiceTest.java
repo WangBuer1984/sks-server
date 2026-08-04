@@ -1,6 +1,7 @@
 package com.sks.profile;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -93,7 +94,7 @@ class ProfileServiceTest extends AbstractDbTest {
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     void confirmPersistsProfileAndACards() {
         when(aiClient.interviewResult(any())).thenReturn(summarizeResultWith2Cards());
-        profileService.confirm(uid, "sess-1");
+        profileService.confirm(uid, "sess-1", null);
         assertTrue(profileService.activeProfile(uid).isPresent());
         assertEquals(2, kbCardService.countByLayer(uid, "A"));
     }
@@ -102,10 +103,55 @@ class ProfileServiceTest extends AbstractDbTest {
     @Test
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     void reCalibrationKeepsOldVersionInactive() {
-        profileService.confirm(uid, "s1"); // v1
-        profileService.confirm(uid, "s2"); // v2
+        profileService.confirm(uid, "s1", null); // v1
+        profileService.confirm(uid, "s2", null); // v2
         assertEquals(2, profileMapper.countByUser(uid));
         assertEquals(1, profileMapper.countActiveByUser(uid)); // 只有一条 active
+    }
+
+    // ---- D2 Task 1：confirm 入库 turns + interview/history 只读端点 + activeProfile strip ----
+
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    void confirmPersistsInterviewTurns() {
+        when(aiClient.interviewResult(anyString())).thenReturn(summarizeResultWith2Cards());
+        List<ProfileService.InterviewTurn> turns = List.of(
+                new ProfileService.InterviewTurn("ai", "猜你人设是…对吗？"),
+                new ProfileService.InterviewTurn("user", "基本对"));
+        profileService.confirm(uid, "sess-1", turns);
+        ProfileService.InterviewHistoryView v = profileService.interviewTurns(uid);
+        assertTrue(v.found());
+        assertEquals(2, v.turns().size());
+        assertEquals("ai", v.turns().get(0).role());
+        assertEquals("基本对", v.turns().get(1).text());
+    }
+
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    void confirmWithoutTurnsBackwardCompat() {
+        when(aiClient.interviewResult(anyString())).thenReturn(summarizeResultWith2Cards());
+        profileService.confirm(uid, "sess-1", null); // 旧契约
+        ProfileService.InterviewHistoryView v = profileService.interviewTurns(uid);
+        assertFalse(v.found()); // 旧档案无 _interview_turns
+        assertTrue(v.turns().isEmpty());
+    }
+
+    @Test
+    void activeProfileStripsUnderscoreKeys() {
+        when(aiClient.interviewResult(anyString())).thenReturn(summarizeResultWith2Cards());
+        List<ProfileService.InterviewTurn> turns = List.of(
+                new ProfileService.InterviewTurn("ai", "q"));
+        profileService.confirm(uid, "sess-1", turns);
+        var content = profileService.activeProfileView(uid).content();
+        assertTrue(content.containsKey("人设"));            // profile 键保留
+        assertFalse(content.containsKey("_interview_turns")); // meta 键剥掉
+    }
+
+    @Test
+    void interviewTurnsUncalibratedReturnsNotFound() {
+        ProfileService.InterviewHistoryView v = profileService.interviewTurns(uid);
+        assertFalse(v.found());
+        assertTrue(v.turns().isEmpty());
     }
 
     // ---- sample-opening passthrough（brief Task 2）---------------------------

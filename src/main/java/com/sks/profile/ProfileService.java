@@ -1,7 +1,9 @@
 package com.sks.profile;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.sks.aiclient.AiClient;
 import com.sks.aiclient.AiClient.InterviewResultResponse;
 import com.sks.aiclient.AiClient.InterviewStepResponse;
@@ -101,14 +103,14 @@ public class ProfileService {
      * {@code threadId = "userId:sessionId"} 与 Python {@code thread_id=f"{user_id}:{session_id}"} 对齐。
      * 无 checkpoint（{@code found=false} 或 profile 为 null）→ {@link ErrorCode#PARAM_INVALID}（访谈未完成）。
      */
-    public void confirm(long userId, String sessionId) {
+    public void confirm(long userId, String sessionId, List<InterviewTurn> turns) {
         String threadId = userId + ":" + sessionId;
         InterviewResultResponse result = aiClient.interviewResult(threadId);
         if (!result.found() || result.profile() == null) {
             throw new BizException(ErrorCode.PARAM_INVALID, "访谈尚未完成，无法确认生效");
         }
         List<AiClient.CardGenCard> aCards = result.aCards() == null ? List.of() : result.aCards();
-        persistConfirm(userId, result.profile(), aCards);
+        persistConfirm(userId, result.profile(), aCards, turns);
     }
 
     /** passthrough：拼 threadId → 调 sks-ai sample-opening。found=false → PARAM_INVALID。不落库。 */
@@ -128,19 +130,28 @@ public class ProfileService {
      * <p>任一 A 卡 safetyCheck 拦截 → 整事务回滚（旧 active 不变，无钱路径，原子即可）。A 卡 content 为
      * JSON 对象，{@code c.content().toString()} 转 JSON 文本存 JSONB（与 card_gen 同模式）。
      */
-    private void persistConfirm(long userId, JsonNode profileJson, List<AiClient.CardGenCard> aCards) {
+    private void persistConfirm(long userId, JsonNode profileJson,
+                                List<AiClient.CardGenCard> aCards, List<InterviewTurn> turns) {
         transactionTemplate.executeWithoutResult(
                 status -> {
-                    profileMapper.deactivateActive(userId);
-                    int version = profileMapper.maxVersion(userId) + 1;
-                    PositioningProfile p = new PositioningProfile();
-                    p.setUserId(userId);
-                    p.setContent(profileJson.toString());
-                    p.setVersion(version);
-                    p.setActive(true);
-                    profileMapper.insert(p);
-                    for (AiClient.CardGenCard c : aCards) {
-                        kbCardService.create(userId, "A", c.cardType(), c.title(), c.content().toString());
+                    try {
+                        ObjectNode root = (ObjectNode) OM.readTree(profileJson.toString());
+                        if (turns != null) {
+                            root.set("_interview_turns", OM.valueToTree(turns));
+                        }
+                        profileMapper.deactivateActive(userId);
+                        int version = profileMapper.maxVersion(userId) + 1;
+                        PositioningProfile p = new PositioningProfile();
+                        p.setUserId(userId);
+                        p.setContent(root.toString());
+                        p.setVersion(version);
+                        p.setActive(true);
+                        profileMapper.insert(p);
+                        for (AiClient.CardGenCard c : aCards) {
+                            kbCardService.create(userId, "A", c.cardType(), c.title(), c.content().toString());
+                        }
+                    } catch (Exception e) {
+                        throw new BizException(ErrorCode.AI_FAILED, "档案落库失败");
                     }
                 });
     }
@@ -159,10 +170,40 @@ public class ProfileService {
             return Optional.empty();
         }
         try {
-            return Optional.of((Map<String, Object>) OM.readValue(p.getContent(), Map.class));
+            Map<String, Object> map = (Map<String, Object>) OM.readValue(p.getContent(), Map.class);
+            map.keySet().removeIf(k -> k.startsWith("_")); // 剥 meta 键（_interview_turns 等），创作/档案卡干净
+            return Optional.of(map);
         } catch (Exception e) {
             log.warn("active profile content parse failed for user {}: {}", userId, e.getMessage());
             return Optional.empty();
+        }
+    }
+
+    /**
+     * 回放用：从 active 档案 content 的 {@code _interview_turns} 取校准访谈 turns（D2 定位回放面板）。
+     *
+     * <p>走 {@link PositioningProfileMapper#findActive} raw，<b>不经 {@link #activeProfile} strip</b>
+     * （{@code _interview_turns} 是 meta 键，{@link #activeProfile} 会剥掉它，故此处绕过）。回放数据
+     * confirm 时入库，<b>不打 AI 服务</b>。未校准 / 旧档案无 {@code _interview_turns} / 解析失败
+     * → {@code found=false}，前端降级占位。
+     */
+    public InterviewHistoryView interviewTurns(long userId) {
+        PositioningProfile p = profileMapper.findActive(userId);
+        if (p == null || p.getContent() == null) {
+            return new InterviewHistoryView(false, List.of());
+        }
+        try {
+            JsonNode root = OM.readTree(p.getContent());
+            JsonNode turns = root.get("_interview_turns");
+            if (turns == null || !turns.isArray() || turns.isEmpty()) {
+                return new InterviewHistoryView(false, List.of());
+            }
+            List<InterviewTurn> list = OM.readValue(
+                    turns.toString(), new TypeReference<List<InterviewTurn>>() {});
+            return new InterviewHistoryView(true, list);
+        } catch (Exception e) {
+            log.warn("interview turns parse failed for user {}: {}", userId, e.getMessage());
+            return new InterviewHistoryView(false, List.of());
         }
     }
 
@@ -172,6 +213,12 @@ public class ProfileService {
             Integer version,
             OffsetDateTime calibratedAt,
             Map<String, Object> content) {}
+
+    /** confirm 请求携带的访谈一轮（{role,text}，D2 回放面板用）。 */
+    public record InterviewTurn(String role, String text) {}
+
+    /** GET /api/profile/interview/history 响应。未校准/旧档案/解析失败 → found=false。 */
+    public record InterviewHistoryView(boolean found, List<InterviewTurn> turns) {}
 
     /**
      * 当前 active 档案的视图。无 active（未校准）→ calibrated=false（前端工作台/定位页判 homeNew/homeNormal）。

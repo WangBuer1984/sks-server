@@ -6,6 +6,7 @@ import com.sks.aiclient.AiClient.InterviewStepResponse;
 import com.sks.common.ApiResponse;
 import com.sks.common.BizException;
 import com.sks.common.ErrorCode;
+import java.util.List;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -97,8 +98,18 @@ public class ProfileController {
         if (req.sessionId() == null || req.sessionId().isBlank()) {
             throw new BizException(ErrorCode.PARAM_INVALID, "sessionId 不能为空");
         }
-        profileService.confirm(userId, req.sessionId());
+        profileService.confirm(userId, req.sessionId(), req.turns());
         return ApiResponse.ok(null);
+    }
+
+    /**
+     * D2 定位回放面板：读 active 档案 content 的 {@code _interview_turns}（confirm 时入库的回放数据）。
+     * 只读，不打 sks-ai。未校准 / 旧档案 / 解析失败 → {@code found=false}，前端降级占位。
+     */
+    @GetMapping("/interview/history")
+    public ApiResponse<ProfileService.InterviewHistoryView> interviewHistory(
+            @AuthenticationPrincipal Long userId) {
+        return ApiResponse.ok(profileService.interviewTurns(userId));
     }
 
     /**
@@ -117,8 +128,8 @@ public class ProfileController {
     /** 访谈推进请求体。首轮 materials 非空、reply=null；后续轮 reply 非空、materials=null。 */
     public record InterviewRequest(String sessionId, String reply, String materials) {}
 
-    /** confirm 请求体。 */
-    public record ConfirmRequest(String sessionId) {}
+    /** confirm 请求体。turns 可空（旧前端不带时 null），入库为 content 的 _interview_turns。 */
+    public record ConfirmRequest(String sessionId, List<ProfileService.InterviewTurn> turns) {}
 
     /** sample-opening 请求体。topic 省略时 Python 默认「报价为什么差一倍」。 */
     public record SampleOpeningRequest(String sessionId, String topic) {}
