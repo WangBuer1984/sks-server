@@ -137,6 +137,16 @@ class ProfileServiceTest extends AbstractDbTest {
     }
 
     @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    void confirmWithEmptyTurnsSkipsInject() {
+        when(aiClient.interviewResult(anyString())).thenReturn(summarizeResultWith2Cards());
+        profileService.confirm(uid, "sess-1", List.of()); // 空数组也跳过注入
+        ProfileService.InterviewHistoryView v = profileService.interviewTurns(uid);
+        assertFalse(v.found()); // 不注入空 _interview_turns
+        assertTrue(v.turns().isEmpty());
+    }
+
+    @Test
     void activeProfileStripsUnderscoreKeys() {
         when(aiClient.interviewResult(anyString())).thenReturn(summarizeResultWith2Cards());
         List<ProfileService.InterviewTurn> turns = List.of(

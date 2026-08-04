@@ -136,7 +136,7 @@ public class ProfileService {
                 status -> {
                     try {
                         ObjectNode root = (ObjectNode) OM.readTree(profileJson.toString());
-                        if (turns != null) {
+                        if (turns != null && !turns.isEmpty()) {
                             root.set("_interview_turns", OM.valueToTree(turns));
                         }
                         profileMapper.deactivateActive(userId);
