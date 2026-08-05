@@ -16,6 +16,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.sks.AbstractDbTest;
 import com.sks.aiclient.AiClient;
 import com.sks.common.BizException;
+import com.sks.common.ErrorCode;
 import com.sks.kb.KbCardMapper;
 import com.sks.kb.KbCardService;
 import com.sks.user.AppUser;
@@ -144,6 +145,19 @@ class ProfileServiceTest extends AbstractDbTest {
         ProfileService.InterviewHistoryView v = profileService.interviewTurns(uid);
         assertFalse(v.found()); // 不注入空 _interview_turns
         assertTrue(v.turns().isEmpty());
+    }
+
+    /** A 卡 safetyCheck 拦截 → CONTENT_BLOCKED 原样冒泡，不被 AI_FAILED 掩盖。 */
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    void confirmContentBlockedPropagatesNotAiFailed() {
+        when(aiClient.interviewResult(anyString())).thenReturn(summarizeResultWith2Cards());
+        when(aiClient.safetyCheck(any())).thenReturn(false); // A 卡 safetyCheck → CONTENT_BLOCKED
+        List<ProfileService.InterviewTurn> turns = List.of(
+                new ProfileService.InterviewTurn("ai", "q"));
+        BizException ex = assertThrows(BizException.class,
+                () -> profileService.confirm(uid, "sess-blocked", turns));
+        assertEquals(ErrorCode.CONTENT_BLOCKED, ex.errorCode());
     }
 
     @Test

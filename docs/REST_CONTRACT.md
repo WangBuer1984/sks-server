@@ -197,7 +197,7 @@ admin 链 `@Order` 更小 → 更具体路径先匹配。user token 访问 `/api
 
 - `ScriptDetail`：`{id, topicId, hook, body, cta, platform, reviewState, citedCardIds, createdAt, updatedAt, dedupWarnScriptId}`。`hook/body/cta` 是 JSON **文本**（形如 `{"sentences":[{"idx":0,"text":"..."}]}`）。
 - `dedupWarnScriptId` **仅 `POST /generate` 可能非空**（命中近复稿告警），其余端点恒为 `null`。
-- `ScriptSummary`：`{id, topicId, platform, reviewState, createdAt, updatedAt, topicTitle, playCount, likeCount, commentCount, shareCount, collectCount}`，不含正文三段。`topicTitle` 由 listByUser LEFT JOIN topic 承接。`playCount` 可为 `null`（视频号不可用，sks-ai 返 null；抖音返真值含 0）。
+- `ScriptSummary`：`{id, topicId, platform, reviewState, createdAt, updatedAt, topicTitle, playCount, likeCount, commentCount, shareCount, collectCount, publishUrl}`，不含正文三段。`topicTitle` 由 listByUser LEFT JOIN topic 承接。`publishUrl` 为登记的发布链接（tracking/hot/plain/flop 态有值，draft/pending 态 null）。`playCount` 可为 `null`（视频号不可用，sks-ai 返 null；抖音返真值含 0）。
 - `generate` 扣额度：余额不足 4001；AI 失败 5001（**已退款**）；命中安全 5002（**已退款**）。
 - `rewrite-sentence` 只返回预览文本**不落库**，免费；命中安全直接 5002（无退款编排，原句保留）。
 
