@@ -168,7 +168,7 @@ public interface ScriptMapper extends BaseMapper<Script> {
      */
     @Select(
             "SELECT COALESCE(AVG(play_count), 0) FROM script WHERE user_id = #{userId} "
-                    + "AND play_count IS NOT NULL AND review_state IN ('hot','plain','flop') "
+                    + "AND play_count IS NOT NULL AND play_count > 0 AND review_state IN ('hot','plain','flop') "
                     + "AND created_at >= now() - interval '30 days'")
     double avgPlayCount30d(@Param("userId") long userId);
 

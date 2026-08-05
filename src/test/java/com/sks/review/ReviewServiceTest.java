@@ -128,6 +128,26 @@ class ReviewServiceTest extends AbstractDbTest {
                         "SELECT like_count FROM script WHERE id=?", Integer.class, sid));
     }
 
+    /**
+     * 视频号 detail 端点不返真实播放量（read_count=0）：play=0 时用 like 代 play 判态。
+     * baseline avg=2000（hot 阈值 6000）；like=9000>=6000 → hot（若用 play=0 则误判 flop）。
+     * play 落库仍存真实 0。
+     */
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    void trackVideohanLikeProxyClassifiesHot() {
+        when(aiClient.fetchVideoMetrics("https://weixin.qq.com/sph/x"))
+                .thenReturn(new AiClient.VideoMetricsResponse(true, 0, 9000, 10, 5, 8));
+        when(aiClient.cardGen(anyLong(), any(), eq("C")))
+                .thenReturn(new AiClient.CardGenResult(false, List.of(), List.of(), List.of()));
+        insertFinalizedScript("flop", 2000); // baseline avg=2000, hot 阈值 6000
+        long sid = insertTrackingScript();
+        ReviewService.TrackResponse r = reviewService.track(uid, sid, "https://weixin.qq.com/sph/x");
+        assertEquals("hot", r.reviewState()); // like=9000 代 play 判态 → hot（非 flop）
+        assertEquals(0, r.playCount()); // 真实 play=0 落库
+        assertEquals(9000, r.likeCount());
+    }
+
     /** pending + track + 无历史 baseline（avg=0）→ fetch 低播放量 → plain 落库 + publish_url + data_source=tikhub。 */
     @Test
     @Transactional(propagation = Propagation.NOT_SUPPORTED)

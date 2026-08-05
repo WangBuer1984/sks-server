@@ -130,19 +130,25 @@ public class ReviewService {
         if (!m.found()) {
             throw new BizException(ErrorCode.PARAM_INVALID, "链接无法识别为视频，请检查发布链接");
         }
+        int play = m.playCount() == null ? 0 : m.playCount();
+        int like = m.likeCount() == null ? 0 : m.likeCount();
+        int comment = m.commentCount() == null ? 0 : m.commentCount();
+        int share = m.shareCount() == null ? 0 : m.shareCount();
+        int collect = m.collectCount() == null ? 0 : m.collectCount();
         double avg = scriptMapper.avgPlayCount30d(userId);
-        ReviewContext ctx = new ReviewContext(m.playCount(), avg, hotThreshold, flopThreshold);
+        // 视频号 detail 端点不返真实播放量（read_count=0），play<=0 时用 like 代 play 判态。
+        // markMetrics/TrackResponse 仍存真实 play（视频号=0），classify 用 like 作 fallback。
+        int classifyCount = play > 0 ? play : like;
+        ReviewContext ctx = new ReviewContext(classifyCount, avg, hotThreshold, flopThreshold);
         String next = transition(ReviewStateMachine.TRACKING, ReviewEvent.PLAY_COUNT, ctx);
         if (scriptMapper.markMetrics(scriptId, userId, next,
-                m.playCount(), m.likeCount(), m.commentCount(),
-                m.shareCount(), m.collectCount()) == 0) {
+                play, like, comment, share, collect) == 0) {
             throw new BizException(ErrorCode.PARAM_INVALID, "稿件状态已变更，请刷新");
         }
         if (ReviewStateMachine.HOT.equals(next)) {
             applyHotSideEffects(userId, s); // best-effort
         }
-        return new TrackResponse(next, m.playCount(), m.likeCount(), m.commentCount(),
-                m.shareCount(), m.collectCount());
+        return new TrackResponse(next, play, like, comment, share, collect);
     }
 
     /**
