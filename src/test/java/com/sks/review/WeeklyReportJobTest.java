@@ -235,6 +235,38 @@ class WeeklyReportJobTest extends AbstractDbTest {
         assertTrue(content.path("blocked").asBoolean(false), "content 应标注 blocked=true");
     }
 
+    /** 视频号 play_count=NULL + like_count=9000 → effectiveMetric(null, 9000)=9000 → Map play_count=9000（like-proxy）。 */
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    void runWeeklyReportVideohanNullPlayUsesLikeProxy() {
+        long topicId = topicService.create(uid, "视频号选题", "本周视频号", "faq");
+        jdbcTemplate.update(
+                "INSERT INTO script(user_id, topic_id, platform, review_state, play_count, like_count, "
+                        + "data_source, hook, body, cta, created_at, publish_url) "
+                        + "VALUES(?, ?, 'douyin', 'flop', NULL, 9000, 'tikhub', ?::jsonb, ?::jsonb, ?::jsonb, ?, 'https://weixin.qq.com/sph/x')",
+                uid,
+                topicId,
+                section("视频号钩子").toString(),
+                section("视频号正文。").toString(),
+                section("视频号 CTA。").toString(),
+                java.sql.Timestamp.valueOf(WEEK_START.plusDays(1).atStartOfDay()));
+        when(aiClient.attributionWeekly(anyLong(), any()))
+                .thenReturn(new AiClient.AttributionWeeklyResult(
+                        "视频号按点赞评估", List.of("w"), List.of("g"), "f", false));
+
+        weeklyReportJob.runWeeklyReport(WEEK_START);
+
+        // Map play_count = effectiveMetric(null, 9000) = 9000（like-proxy，非 null/0）
+        verify(aiClient)
+                .attributionWeekly(
+                        eq(uid),
+                        argThat(
+                                (List<Map<String, Object>> scripts) ->
+                                        scripts.size() == 1
+                                                && Integer.valueOf(9000)
+                                                        .equals(scripts.get(0).get("play_count"))));
+    }
+
     // ---- helpers ----
 
     /** 在指定周的某天插一条已复盘稿（hot/plain/flop），带 play_count + hook/body/cta。 */
