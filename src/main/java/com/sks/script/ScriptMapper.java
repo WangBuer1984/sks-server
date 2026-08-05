@@ -143,6 +143,10 @@ public interface ScriptMapper extends BaseMapper<Script> {
      * <p><b>守卫 review_state='tracking'</b>（防竞态盖终态）：fetch 期间若态被并发改（如 RejectSweeper
      * 不扫 tracking，但保险起见守卫），rows=0 → 调用方抛 PARAM_INVALID。state 由
      * {@link com.sks.review.ReviewStateMachine#classify}（经 {@code transition(TRACKING, PLAY_COUNT, ctx)}）决定。
+     *
+     * <p><b>D4 follow-up（null-play）</b>：{@code playCount} 为 {@link Integer}——视频号不可用时 sks-ai 返
+     * {@code null}，此处存 SQL NULL（MyBatis 对 {@code Integer null} → NULL）；抖音真 0 仍存 0。
+     * classify 用 {@link com.sks.review.ReviewService#effectiveMetric} 的 like-proxy，不在此处理。
      */
     @Update(
             "UPDATE script SET review_state = #{state}, play_count = #{playCount}, "
@@ -154,7 +158,7 @@ public interface ScriptMapper extends BaseMapper<Script> {
             @Param("id") long id,
             @Param("userId") long userId,
             @Param("state") String state,
-            @Param("playCount") int playCount,
+            @Param("playCount") Integer playCount,
             @Param("likeCount") int likeCount,
             @Param("commentCount") int commentCount,
             @Param("shareCount") int shareCount,

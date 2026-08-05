@@ -130,25 +130,25 @@ public class ReviewService {
         if (!m.found()) {
             throw new BizException(ErrorCode.PARAM_INVALID, "链接无法识别为视频，请检查发布链接");
         }
-        int play = m.playCount() == null ? 0 : m.playCount();
+        Integer playN = m.playCount(); // null（视频号）/ 真值（抖音，含 0）
         int like = m.likeCount() == null ? 0 : m.likeCount();
         int comment = m.commentCount() == null ? 0 : m.commentCount();
         int share = m.shareCount() == null ? 0 : m.shareCount();
         int collect = m.collectCount() == null ? 0 : m.collectCount();
         double avg = scriptMapper.avgPlayCount30d(userId);
-        // 视频号 detail 端点不返真实播放量（read_count=0），play<=0 时用 like 代 play 判态。
-        // markMetrics/TrackResponse 仍存真实 play（视频号=0），classify 用 like 作 fallback。
-        int classifyCount = play > 0 ? play : like;
+        // null-based 主指标：play 有值（含真 0）用 play；play==null（视频号不可用）用 like。
+        // 抖音真 0 → 0（flop），不走 like；视频号 null → like 作 fallback。
+        int classifyCount = effectiveMetric(playN, like);
         ReviewContext ctx = new ReviewContext(classifyCount, avg, hotThreshold, flopThreshold);
         String next = transition(ReviewStateMachine.TRACKING, ReviewEvent.PLAY_COUNT, ctx);
         if (scriptMapper.markMetrics(scriptId, userId, next,
-                play, like, comment, share, collect) == 0) {
+                playN, like, comment, share, collect) == 0) {
             throw new BizException(ErrorCode.PARAM_INVALID, "稿件状态已变更，请刷新");
         }
         if (ReviewStateMachine.HOT.equals(next)) {
             applyHotSideEffects(userId, s); // best-effort
         }
-        return new TrackResponse(next, play, like, comment, share, collect);
+        return new TrackResponse(next, playN, like, comment, share, collect);
     }
 
     /**
@@ -175,9 +175,10 @@ public class ReviewService {
             throw new BizException(ErrorCode.PARAM_INVALID, "仅扑街稿件可看归因");
         }
         double baseline = scriptMapper.avgPlayCount30d(userId);
-        int playCount = s.getPlayCount() == null ? 0 : s.getPlayCount();
+        // null-based 主指标：视频号 play=null → 用 like 作归因 input（与 track classify 同口径）。
+        int metric = effectiveMetric(s.getPlayCount(), s.getLikeCount());
         AiClient.AttributionSingleResult r =
-                aiClient.attributionSingle(scriptText(s), playCount, baseline);
+                aiClient.attributionSingle(scriptText(s), metric, baseline);
         if (r.blocked()) {
             throw new BizException(ErrorCode.CONTENT_BLOCKED);
         }
@@ -295,7 +296,25 @@ public class ReviewService {
     /** flop 归因视图：诊断 + 建议列表。 */
     public record AttributionView(String diagnosis, List<String> suggestions) {}
 
+    /**
+     * null-based 主指标：play 有值（含真 0）用 play；play==null（视频号不可用）用 like。
+     *
+     * <p>抖音真 0 → 0（判 flop，<b>不</b>误走 like）；视频号 null → like 作 fallback；双 null → 0。
+     * track classify / attribute / weekly 共用此口径。
+     */
+    static int effectiveMetric(Integer play, Integer like) {
+        if (play != null) {
+            return play;
+        }
+        return like == null ? 0 : like;
+    }
+
     /** track 响应：判定态 + 5 指标（play/like/comment/share/collect），供前端展示。 */
-    public record TrackResponse(String reviewState, int playCount, int likeCount,
-                                int commentCount, int shareCount, int collectCount) {}
+    public record TrackResponse(
+            String reviewState,
+            Integer playCount,
+            int likeCount,
+            int commentCount,
+            int shareCount,
+            int collectCount) {}
 }

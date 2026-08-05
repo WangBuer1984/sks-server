@@ -141,7 +141,8 @@ public class WeeklyReportJob {
         for (Script s : scripts) {
             Map<String, Object> item = new HashMap<>();
             item.put("script", ReviewService.scriptText(s));
-            item.put("play_count", s.getPlayCount() == null ? 0 : s.getPlayCount());
+            // null-based 主指标：视频号 play=null → 用 like（数，非 null），prompt 不改。
+            item.put("play_count", ReviewService.effectiveMetric(s.getPlayCount(), s.getLikeCount()));
             item.put("review_state", s.getReviewState() == null ? "unknown" : s.getReviewState());
             item.put("baseline", baseline);
             scriptsPayload.add(item);

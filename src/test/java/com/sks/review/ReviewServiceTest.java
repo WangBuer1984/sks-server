@@ -1,6 +1,7 @@
 package com.sks.review;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyDouble;
@@ -129,23 +130,45 @@ class ReviewServiceTest extends AbstractDbTest {
     }
 
     /**
-     * 视频号 detail 端点不返真实播放量（read_count=0）：play=0 时用 like 代 play 判态。
-     * baseline avg=2000（hot 阈值 6000）；like=9000>=6000 → hot（若用 play=0 则误判 flop）。
-     * play 落库仍存真实 0。
+     * 视频号 play=null（不可用）+ like=9000 → classify 用 like（effectiveMetric）→ hot；DB/响应 play=null。
+     * baseline avg=2000（hot 阈值 6000）；like=9000>=6000 → hot（若用 0 则误判 flop）。
      */
     @Test
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    void trackVideohanLikeProxyClassifiesHot() {
+    void trackVideohanNullPlayLikeProxyClassifiesHot() {
         when(aiClient.fetchVideoMetrics("https://weixin.qq.com/sph/x"))
-                .thenReturn(new AiClient.VideoMetricsResponse(true, 0, 9000, 10, 5, 8));
+                .thenReturn(new AiClient.VideoMetricsResponse(true, null, 9000, 10, 5, 8));
         when(aiClient.cardGen(anyLong(), any(), eq("C")))
                 .thenReturn(new AiClient.CardGenResult(false, List.of(), List.of(), List.of()));
         insertFinalizedScript("flop", 2000); // baseline avg=2000, hot 阈值 6000
         long sid = insertTrackingScript();
         ReviewService.TrackResponse r = reviewService.track(uid, sid, "https://weixin.qq.com/sph/x");
         assertEquals("hot", r.reviewState()); // like=9000 代 play 判态 → hot（非 flop）
-        assertEquals(0, r.playCount()); // 真实 play=0 落库
+        assertNull(r.playCount()); // 视频号 play=null 落库
         assertEquals(9000, r.likeCount());
+        assertNull(
+                jdbcTemplate.queryForObject(
+                        "SELECT play_count FROM script WHERE id = ?", Integer.class, sid));
+    }
+
+    /**
+     * 抖音 play=0（真 0）+ like=5000 + baseline=2000 → 用 play=0 判态（flop），<b>非</b> like。
+     * flop 阈值 1000；play=0<1000 → flop。effectiveMetric(0, 5000)=0（真 0 不走 like）。
+     */
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    void trackDouyinTrueZeroPlayDoesNotUseLike() {
+        when(aiClient.fetchVideoMetrics("https://v.douyin.com/zero"))
+                .thenReturn(new AiClient.VideoMetricsResponse(true, 0, 5000, 0, 0, 0));
+        insertFinalizedScript("flop", 2000); // avg=2000 → flop 阈值 1000；play=0 → flop
+        long sid = insertTrackingScript();
+        ReviewService.TrackResponse r = reviewService.track(uid, sid, "https://v.douyin.com/zero");
+        assertEquals("flop", r.reviewState()); // 用 play=0 判态 → flop（非 like=5000）
+        assertEquals(0, r.playCount());
+        assertEquals(
+                0,
+                jdbcTemplate.queryForObject(
+                        "SELECT play_count FROM script WHERE id = ?", Integer.class, sid));
     }
 
     /** pending + track + 无历史 baseline（avg=0）→ fetch 低播放量 → plain 落库 + publish_url + data_source=tikhub。 */
@@ -315,6 +338,36 @@ class ReviewServiceTest extends AbstractDbTest {
                 assertThrows(BizException.class, () -> reviewService.attribute(uid, sid));
         assertEquals(ErrorCode.PARAM_INVALID, e.errorCode());
         verify(aiClient, never()).attributionSingle(any(), anyInt(), anyDouble());
+    }
+
+    /**
+     * flop + play=null（视频号）+ like=9000 → attributionSingle 收到 metric=9000（effectiveMetric like-proxy）。
+     * 归因 input 用 like 代 play，prompt 不改。归因不改态。
+     */
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    void attributeVideohanUsesLikeWhenPlayNull() {
+        long sid = insertTrackingScript();
+        jdbcTemplate.update(
+                "UPDATE script SET review_state='flop', play_count=NULL, like_count=9000, "
+                        + "publish_url='https://weixin.qq.com/sph/x', data_source='tikhub' WHERE id=?",
+                sid);
+        when(aiClient.attributionSingle(any(), eq(9000), anyDouble()))
+                .thenReturn(new AiClient.AttributionSingleResult("d", List.of("s"), false));
+        ReviewService.AttributionView view = reviewService.attribute(uid, sid);
+        assertEquals("d", view.diagnosis());
+        verify(aiClient).attributionSingle(any(), eq(9000), anyDouble());
+    }
+
+    // ---- effectiveMetric 纯函数 ----
+
+    /** null-based 主指标：play 有值（含真 0）用 play；play==null 用 like；双 null→0。 */
+    @Test
+    void effectiveMetricNullPlayUsesLike() {
+        assertEquals(9, ReviewService.effectiveMetric(null, 9));
+        assertEquals(0, ReviewService.effectiveMetric(0, 9)); // 真 0 不走 like
+        assertEquals(3, ReviewService.effectiveMetric(3, 9));
+        assertEquals(0, ReviewService.effectiveMetric(null, null));
     }
 
     // ---- 状态迁移落库 + 非法态拒绝 ----
