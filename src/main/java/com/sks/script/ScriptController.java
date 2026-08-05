@@ -152,7 +152,8 @@ public class ScriptController {
             Integer likeCount,
             Integer commentCount,
             Integer shareCount,
-            Integer collectCount) {
+            Integer collectCount,
+            String publishUrl) {
         public static ScriptSummary of(Script s) {
             return new ScriptSummary(
                     s.getId(),
@@ -166,7 +167,8 @@ public class ScriptController {
                     s.getLikeCount(),
                     s.getCommentCount(),
                     s.getShareCount(),
-                    s.getCollectCount());
+                    s.getCollectCount(),
+                    s.getPublishUrl());
         }
     }
 }

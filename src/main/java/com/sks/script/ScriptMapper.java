@@ -94,6 +94,7 @@ public interface ScriptMapper extends BaseMapper<Script> {
     @Select(
             "SELECT s.id, s.user_id, s.topic_id, s.platform, s.review_state, s.created_at, s.updated_at, "
                     + "s.play_count, s.like_count, s.comment_count, s.share_count, s.collect_count, "
+                    + "s.publish_url, "
                     + "t.title AS topic_title "
                     + "FROM script s "
                     + "LEFT JOIN topic t ON t.id = s.topic_id AND t.user_id = s.user_id "
